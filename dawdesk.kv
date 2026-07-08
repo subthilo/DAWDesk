@@ -1,0 +1,113 @@
+#:import DAWFader widgets.fader.DAWFader
+#:import DAWChannelStrip widgets.channel_strip.DAWChannelStrip
+#:import DAWPanKnob widgets.pan_knob.DAWPanKnob
+
+<DAWFader>:
+    knob_height: 38
+    knob_width_ratio: 0.7
+    knob_corner_radius: 10
+    knob_x_offset: -10
+    knob_line_width: 4.0
+    track_width: 8
+    meter_width: 6
+    meter_x_offset: 0
+    ticks_x_offset: 0
+    labels_x_offset: -35
+    default_tick_width: 20
+    tick_line_width: 1.5
+    label_font_size: 22
+    value_font_size: 20
+    value_display_x_offset: -25
+    foil_padding: 6
+    db_min: -60.0
+    db_max: 6.0
+    scale_exponent: 2.0
+
+<DAWPanKnob>:
+    ring_thickness: 2.0
+    opening_angle: 90.0
+    font_size: 14
+    dot_size_ratio: 1.0
+    drag_sensitivity: 0.01
+    drag_axis: 'vertical'
+
+<DAWChannelStrip>:
+    orientation: 'vertical'
+    padding: [0, 15, 0, 15]  # Horizontal kein Padding, Vertikal 15px
+    spacing: 5
+    
+    # Kivy native Größenlimits
+    size_hint_min_x: 100
+    size_hint_max_x: 300
+    
+    canvas.before:
+        # Ein einheitlicher, nahtloser Hintergrund für den gesamten Kanalzug
+        Color:
+            rgba: 0.12, 0.18, 0.25, 1
+        Rectangle:
+            pos: self.pos
+            size: self.size
+
+    canvas.after:
+        # Trennlinien-Farbe (ein edler, dunkler Trennlinienton)
+        Color:
+            rgba: 0.08, 0.12, 0.18, 1
+            
+        # 1. Vertikaler Trennstrich links (begrenzt den Kanalzug seitlich)
+        Line:
+            points: [self.x, self.y, self.x, self.y + self.height]
+            width: 1.2
+            
+        # 2. Vertikaler Trennstrich rechts (begrenzt den Kanalzug seitlich)
+        Line:
+            points: [self.x + self.width, self.y, self.x + self.width, self.y + self.height]
+            width: 1.2
+            
+        # 3. Horizontaler Trennstrich zwischen Panner und Fader (zentriert, Property-basiert)
+        Line:
+            points: [self.x + self.width * (1.0 - root.divider_width_ratio) / 2.0, self.y + self.height - self.padding[1] - root.pan_knob_size * root.scale - self.spacing / 2.0, self.x + self.width * (1.0 + root.divider_width_ratio) / 2.0, self.y + self.height - self.padding[1] - root.pan_knob_size * root.scale - self.spacing / 2.0]
+            width: 1.2
+            
+        # 4. Horizontaler Trennstrich zwischen Fader und Name (zentriert, Property-basiert)
+        Line:
+            points: [self.x + self.width * (1.0 - root.divider_width_ratio) / 2.0, self.y + self.padding[3] + root.label_height * root.scale + self.spacing / 2.0, self.x + self.width * (1.0 + root.divider_width_ratio) / 2.0, self.y + self.padding[3] + root.label_height * root.scale + self.spacing / 2.0]
+            width: 1.2
+
+    # 1. Pan-Bereich oben (Kreisförmiger, mitskalierender Knopf)
+    DAWPanKnob:
+        id: pan_knob
+        value: root.pan
+        on_value: root.pan = self.value
+        pan_min: root.pan_min
+        pan_max: root.pan_max
+        size_hint: None, None
+        size: root.pan_knob_size * root.scale, root.pan_knob_size * root.scale
+        pos_hint: {'center_x': 0.5}
+
+    # 2. Fader mittig
+    DAWFader:
+        id: fader
+        value: root.value
+        meter_value: root.meter_value
+        on_value: root.value = self.value
+
+    # 3. Spurenname unten (mit mitskalierender Schriftgröße)
+    Label:
+        id: track_name_label
+        text: root.track_name
+        font_size: max(14, int(22 * root.scale))
+        bold: True
+        color: 0.85, 0.92, 0.95, 1
+        size_hint_y: None
+        height: root.label_height * root.scale
+
+BoxLayout:
+    orientation: 'vertical'
+    padding: 20
+    spacing: 10
+
+    # Mixer-Bereich: Hier werden Kanalzüge zur Laufzeit dynamisch hinzugefügt
+    BoxLayout:
+        id: mixer_layout
+        orientation: 'horizontal'
+        spacing: 0  # Nahtlose Reihung
