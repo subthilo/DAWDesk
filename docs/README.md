@@ -1,26 +1,28 @@
-# DAWDesk – Dokumentation
+# DAWDesk - High-Performance Controller für DAWs
 
-DAWDesk ist eine modulare Kivy-basierte DAW-Mixer-Oberfläche. Sie stellt Kanalzüge mit Lautstärkeregler, Pan-Regler und Spurbezeichnung als reaktive, skalierbare Widgets dar.
+DAWDesk ist ein Touchscreen-basierter virtueller Controller für Digital Audio Workstations (DAW), optimiert für den Betrieb auf einem **Raspberry Pi 4 / 5 mit offiziellem 7" Touch-Display**.
 
-## Inhaltsverzeichnis
+## Besonderheiten
+- **High Performance:** Geschrieben in Python und Kivy. Das UI nutzt eine hochoptimierte Single-Widget Canvas-Architektur für Zero-Allocation Render-Loops und garantierte 60 FPS selbst bei 12 gleichzeitig dargestellten Kanälen.
+- **Zero Latency Touch:** Tiefe Integration in die Linux MTDev/Input-Pipeline, um Latenzen bei Fader-Bewegungen vollständig zu eliminieren.
+- **Raspberry Pi Optimiert:** Startet als systemd-Service direkt ohne X11/Wayland Desktop-Umgebung (EGLFS/DRM).
 
-| Dokument | Beschreibung |
-|----------|-------------|
-| [Architektur](architecture.md) | Projektstruktur, Modul-Verantwortlichkeiten und Design-Patterns |
-| [Widgets](widgets.md) | Detaillierte Beschreibung aller Widgets (DAWFader, DAWPanKnob, DAWChannelStrip) |
-| [Konfiguration](configuration.md) | Alle konfigurierbaren Properties, wo sie definiert sind und wie man sie ändert |
-| [Designentscheidungen](design-decisions.md) | Technische Entscheidungen, Kivy-spezifische Erkenntnisse und Begründungen |
+## Projektstruktur
+* `main.py`: Einstiegspunkt der Anwendung. Setzt Zero-Latency Konfigurationen.
+* `dawdesk.kv`: Minimale Layout-Konfiguration.
+* `widgets/channel_strip.py`: Der gesamte Kanalzug (Pan, Fader, Pegel) als einzelnes High-Performance Widget.
+* `scripts/`: Deployment- und Setup-Skripte für den Raspberry Pi.
 
-## Schnellstart
+## Installation & Deployment
+Die Software wird lokal am Entwicklungsrechner bearbeitet und via SSH auf den Pi deployt.
 
+Auf dem Mac (oder PC) ausführen:
 ```bash
-# Virtuelle Umgebung aktivieren und App starten
-source .venv/bin/activate
-python main.py
+python3 scripts/deploy.py <IP_DES_PI> <USER> <PASSWORT>
 ```
+Das Skript kopiert den Code, installiert auf dem Pi alle System- und Python-Abhängigkeiten (Kivy 2.3.1), richtet ein Virtual Environment ein und erstellt einen Autostart-Service (`dawdesk.service`).
 
-## Technologie
-
-- **Python 3.9+**
-- **Kivy 2.3.1** – Cross-Platform-UI-Framework
-- **Keine externen Abhängigkeiten** außer Kivy
+## Systemvoraussetzungen (Ziel-Hardware)
+- Raspberry Pi (4 oder 5 empfohlen)
+- Raspberry Pi OS (Bookworm oder neuer, 64-bit Lite Version empfohlen)
+- Offizielles Raspberry Pi 7" Touch Display (oder kompatibles)

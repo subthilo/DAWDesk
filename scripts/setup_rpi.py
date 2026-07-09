@@ -49,9 +49,10 @@ def setup_python_env(project_dir):
     else:
         print(f"Warning: {req_file} not found!")
 
-def configure_waveshare():
+def configure_waveshare(rotation=None):
     print("\n--- Configuring Waveshare Display ---")
     config_file = "/boot/firmware/config.txt"
+    cmdline_file = "/boot/firmware/cmdline.txt"
     overlay = "dtoverlay=vc4-kms-dsi-waveshare-panel-v2,10_1_inch_a"
     
     # Check if the file exists (some older RPi OS use /boot/config.txt)
@@ -59,6 +60,7 @@ def configure_waveshare():
         alt_config = "/boot/config.txt"
         if os.path.exists(alt_config):
             config_file = alt_config
+            cmdline_file = "/boot/cmdline.txt"
         else:
             print("Error: Could not find config.txt in /boot/firmware or /boot")
             return
@@ -80,6 +82,36 @@ def configure_waveshare():
         print(f"Permission denied reading {config_file}. Try running with sudo if needed.")
     except Exception as e:
         print(f"Error configuring display: {e}")
+        
+    if rotation is not None:
+        try:
+            # Statt OS-Rotation (die unzuverlässig ist), schreiben wir eine config,
+            # die Kivy beim Start ausliest.
+            config_json_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "device_config.json")
+            import json
+            config_data = {"rotation": str(rotation)}
+            
+            with open(config_json_path, "w") as f:
+                json.dump(config_data, f)
+            print(f"[{config_json_path}] Saved Kivy rotation setting ({rotation} degrees).")
+            
+            # Wir räumen eventuelle alte cmdline.txt Einträge auf
+            cmdline_file = "/boot/firmware/cmdline.txt"
+            if not os.path.exists(cmdline_file) and os.path.exists("/boot/cmdline.txt"):
+                cmdline_file = "/boot/cmdline.txt"
+                
+            if os.path.exists(cmdline_file):
+                with open(cmdline_file, "r") as f:
+                    content = f.read().strip()
+                import re
+                new_content = re.sub(r'\s?video=DSI-1:[^\s]+', '', content).strip()
+                new_content = re.sub(r'\s?fbcon=rotate:[0-3]', '', new_content).strip()
+                if new_content != content:
+                    cmd = f"echo '{new_content}' | sudo tee {cmdline_file}"
+                    run_command(cmd, shell=True)
+                    print("Cleaned up old OS rotation settings from cmdline.txt.")
+        except Exception as e:
+            print(f"Error configuring rotation: {e}")
 
 def setup_autostart(project_dir):
     print("\n--- Configuring Autostart (systemd) ---")
@@ -107,15 +139,16 @@ WantedBy=multi-user.target
         run_command(["sudo", "mv", service_path, "/etc/systemd/system/dawdesk.service"])
         run_command(["sudo", "systemctl", "daemon-reload"])
         run_command(["sudo", "systemctl", "enable", "dawdesk.service"])
-        print("Systemd service 'dawdesk.service' created and enabled.")
+        run_command(["sudo", "systemctl", "restart", "dawdesk.service"])
+        print("Systemd service 'dawdesk.service' created, enabled and restarted.")
         print("The app will start automatically on the next boot.")
-        print("To start it now, run: sudo systemctl start dawdesk.service")
     except Exception as e:
         print(f"Failed to setup autostart: {e}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Setup DAWDesk environment on Raspberry Pi")
     parser.add_argument("--waveshare", action="store_true", help="Configure /boot/firmware/config.txt for Waveshare 10.1 display")
+    parser.add_argument("--rotate", type=int, choices=[0, 90, 180, 270], help="Screen rotation angle for the Waveshare display")
     
     args = parser.parse_args()
     
@@ -127,7 +160,7 @@ if __name__ == "__main__":
     setup_python_env(project_dir)
     
     if args.waveshare:
-        configure_waveshare()
+        configure_waveshare(args.rotate)
         
     setup_autostart(project_dir)
         
