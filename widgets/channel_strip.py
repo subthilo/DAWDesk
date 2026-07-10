@@ -1,5 +1,6 @@
 import time
 import math
+from kivy.app import App
 from kivy.uix.widget import Widget
 from kivy.properties import StringProperty, NumericProperty, ColorProperty, ListProperty, BooleanProperty
 from kivy.graphics import Color, Rectangle, Line, SmoothLine, Ellipse
@@ -14,6 +15,7 @@ class DAWChannelStrip(Widget):
     den Kivy-Widget-Overhead zu vermeiden. Bietet maximale FPS auf EGLFS.
     """
     track_name = StringProperty("Spur")
+    channel_id = NumericProperty(0)   # Kanal-Index 1–12, wird von main.py gesetzt
     value = NumericProperty(-60.0)
     meter_value = NumericProperty(-60.0)
     pan = NumericProperty(0.0)  # -1.0 bis 1.0 (Pan-Bereich wie im alten Widget)
@@ -388,9 +390,11 @@ class DAWChannelStrip(Widget):
                 delta_val = (dy / 150.0) * 2.0
                 new_val = touch.ud.get('start_pan', 0.0) + delta_val
                 self.pan = max(-1.0, min(1.0, new_val))
+                self._send_pan_osc()
             elif ctrl == 'fader':
                 target_y = touch.y - touch.ud.get('offset_y', 0)
                 self.value = self._y_to_db(target_y, geo)
+                self._send_volume_osc()
             return True
         return super().on_touch_move(touch)
 
@@ -399,3 +403,32 @@ class DAWChannelStrip(Widget):
             touch.ungrab(self)
             return True
         return super().on_touch_up(touch)
+
+    # --- OSC Sending ---
+    def _send_volume_osc(self):
+        """Sendet nur den aktuellen Fader-Wert an den Broker."""
+        app = App.get_running_app()
+        if not app or not getattr(app, 'osc_client', None) or self.channel_id == 0:
+            return
+        # dB (-60..+6) → 0.0..1.0
+        vol = max(0.0, min(1.0, (self.value - self.db_min) / (self.db_max - self.db_min)))
+        try:
+            app.osc_client.send_message(
+                f'/ui/{app.controller_id}/fader/{self.channel_id}/volume', vol
+            )
+        except Exception:
+            pass
+
+    def _send_pan_osc(self):
+        """Sendet nur den aktuellen Pan-Wert an den Broker."""
+        app = App.get_running_app()
+        if not app or not getattr(app, 'osc_client', None) or self.channel_id == 0:
+            return
+        # -1.0..1.0 → 0.0..1.0  (0.5 = Mitte)
+        pan = (self.pan + 1.0) / 2.0
+        try:
+            app.osc_client.send_message(
+                f'/ui/{app.controller_id}/fader/{self.channel_id}/pan', pan
+            )
+        except Exception:
+            pass

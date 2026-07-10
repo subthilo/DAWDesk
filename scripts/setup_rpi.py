@@ -139,7 +139,7 @@ WantedBy=multi-user.target
         run_command(["sudo", "mv", service_path, "/etc/systemd/system/dawdesk.service"])
         run_command(["sudo", "systemctl", "daemon-reload"])
         run_command(["sudo", "systemctl", "enable", "dawdesk.service"])
-        run_command(["sudo", "systemctl", "restart", "dawdesk.service"])
+        run_command(["sudo", "systemctl", "restart", "--no-block", "dawdesk.service"])
         print("Systemd service 'dawdesk.service' created, enabled and restarted.")
         print("The app will start automatically on the next boot.")
     except Exception as e:
@@ -149,6 +149,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Setup DAWDesk environment on Raspberry Pi")
     parser.add_argument("--waveshare", action="store_true", help="Configure /boot/firmware/config.txt for Waveshare 10.1 display")
     parser.add_argument("--rotate", type=int, choices=[0, 90, 180, 270], help="Screen rotation angle for the Waveshare display")
+    parser.add_argument("--controller-id", type=str, default=None,
+                        help="Eindeutiger Name dieses Controllers (z.B. 'rpi-studio-1')")
     
     args = parser.parse_args()
     
@@ -161,7 +163,27 @@ if __name__ == "__main__":
     
     if args.waveshare:
         configure_waveshare(args.rotate)
-        
+    elif args.rotate is not None:
+        # Rotation ohne Waveshare-Display-Konfiguration (nur device_config.json)
+        configure_waveshare(args.rotate)
+
+    # Controller-ID in device_config.json schreiben (ergänzend zu Rotation)
+    if args.controller_id:
+        print(f"\n--- Setting Controller ID: '{args.controller_id}' ---")
+        import json as _json
+        config_json_path = os.path.join(project_dir, 'device_config.json')
+        config_data = {}
+        if os.path.exists(config_json_path):
+            try:
+                with open(config_json_path, 'r') as _f:
+                    config_data = _json.load(_f)
+            except Exception:
+                pass
+        config_data['controller_id'] = args.controller_id
+        with open(config_json_path, 'w') as _f:
+            _json.dump(config_data, _f, indent=2)
+        print(f"  Saved controller_id='{args.controller_id}' to {config_json_path}")
+
     setup_autostart(project_dir)
         
     print("\n--- Setup Complete ---")
