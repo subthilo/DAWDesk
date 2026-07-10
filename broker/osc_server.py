@@ -10,13 +10,9 @@ from datetime import datetime
 
 from pythonosc.dispatcher import Dispatcher
 from pythonosc.osc_server import AsyncIOOSCUDPServer
+from .logger import _log
 
 OSC_PORT = 8000
-
-
-def _log(msg: str):
-    ts = datetime.now().strftime('%H:%M:%S')
-    print(f"[{ts}] {msg}", flush=True)
 
 
 def _handle_volume(address: str, *args):

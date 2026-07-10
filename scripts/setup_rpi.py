@@ -151,6 +151,8 @@ if __name__ == "__main__":
     parser.add_argument("--rotate", type=int, choices=[0, 90, 180, 270], help="Screen rotation angle for the Waveshare display")
     parser.add_argument("--controller-id", type=str, default=None,
                         help="Eindeutiger Name dieses Controllers (z.B. 'rpi-studio-1')")
+    parser.add_argument("--channels", type=int, default=12,
+                        help="Anzahl der Kanäle auf diesem Controller. Default: 12.")
     
     args = parser.parse_args()
     
@@ -180,9 +182,10 @@ if __name__ == "__main__":
             except Exception:
                 pass
         config_data['controller_id'] = args.controller_id
+        config_data['channels'] = args.channels
         with open(config_json_path, 'w') as _f:
             _json.dump(config_data, _f, indent=2)
-        print(f"  Saved controller_id='{args.controller_id}' to {config_json_path}")
+        print(f"  Saved controller_id='{args.controller_id}', channels={args.channels} to {config_json_path}")
 
     setup_autostart(project_dir)
         

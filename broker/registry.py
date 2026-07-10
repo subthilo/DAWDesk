@@ -14,7 +14,7 @@ class ControllerRegistry:
     def __init__(self):
         self._controllers: dict[str, ControllerConnection] = {}
 
-    def register(self, controller_id: str, ip: str, osc_port: int) -> tuple[bool, bool]:
+    def register(self, controller_id: str, ip: str, osc_port: int, channels: int = 12) -> tuple[bool, bool]:
         """
         Registriert oder aktualisiert einen Controller.
         Returns: (is_new: bool, came_back_online: bool)
@@ -25,12 +25,14 @@ class ControllerRegistry:
             ctrl.update_seen()
             ctrl.ip = ip
             ctrl.osc_port = osc_port
+            ctrl.channels = channels
             return False, was_offline
         else:
             self._controllers[controller_id] = ControllerConnection(
                 controller_id=controller_id,
                 ip=ip,
-                osc_port=osc_port
+                osc_port=osc_port,
+                channels=channels
             )
             return True, False
 

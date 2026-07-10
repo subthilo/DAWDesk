@@ -43,8 +43,6 @@ from widgets.channel_strip import DAWChannelStrip
 
 kivy.require('2.0.0')
 
-NUM_CHANNELS = 12
-
 # -------------------------------------------------------------------------
 # DISCOVERY KONFIGURATION
 # -------------------------------------------------------------------------
@@ -108,7 +106,7 @@ async def run_discovery_client(app):
         sock=sock
     )
 
-    hello_msg = f"DAWDESK_HELLO {controller_id} {CONTROLLER_PORT}".encode('utf-8')
+    hello_msg = f"DAWDESK_HELLO {controller_id} {CONTROLLER_PORT} {app.channels}".encode('utf-8')
 
     try:
         while True:
@@ -157,6 +155,7 @@ class DAWDeskApp(App):
             'controller_id',
             socket.gethostname()
         )
+        self.channels = _device_config.get('channels', 12)
         self.osc_client = None   # Wird gesetzt sobald Broker-IP bekannt
         self._broker_ip = None
 
@@ -166,7 +165,7 @@ class DAWDeskApp(App):
 
         # Dynamisches Hinzufügen von Kanalzügen beim Start
         mixer = self.root.ids.mixer_layout
-        for i in range(1, NUM_CHANNELS + 1):
+        for i in range(1, self.channels + 1):
             channel = DAWChannelStrip(
                 channel_id=i,
                 track_name=f"Ch {i}",
@@ -184,10 +183,19 @@ class DAWDeskApp(App):
 # -------------------------------------------------------------------------
 async def _async_main():
     app = DAWDeskApp()
-    await asyncio.gather(
-        app.async_run('asyncio'),
-        run_discovery_client(app),
-    )
+    
+    # Discovery als Background-Task starten
+    discovery_task = asyncio.create_task(run_discovery_client(app))
+    
+    # Warten, bis die Kivy-App beendet wird (z.B. durch SIGTERM)
+    await app.async_run('asyncio')
+    
+    # Endlosschleife des Discovery-Clients abbrechen, damit der Prozess sauber beenden kann
+    discovery_task.cancel()
+    try:
+        await discovery_task
+    except asyncio.CancelledError:
+        pass
 
 
 if __name__ == '__main__':

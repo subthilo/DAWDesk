@@ -12,15 +12,10 @@ import socket
 from datetime import datetime
 
 from .registry import ControllerRegistry
+from .logger import _log
 
 DISCOVERY_PORT = 5006   # UDP-Port auf dem der Broker lauscht
 BROKER_OSC_PORT = 8000  # OSC-Port des Brokers (für spätere Nutzung)
-
-
-def _log(msg: str):
-    ts = datetime.now().strftime('%H:%M:%S')
-    print(f"[{ts}] {msg}", flush=True)
-
 
 class DiscoveryProtocol(asyncio.DatagramProtocol):
     """asyncio UDP-Protokoll-Handler für eingehende HELLO-Broadcasts."""
@@ -44,19 +39,25 @@ class DiscoveryProtocol(asyncio.DatagramProtocol):
             return
 
         parts = message.split()
-        if len(parts) != 3:
+        if len(parts) < 3:
             return
 
-        _, controller_id, osc_port_str = parts
+        controller_id = parts[1]
+        osc_port_str = parts[2]
+        
+        # Falls ältere Controller senden, Fallback auf 12
+        channels_str = parts[3] if len(parts) >= 4 else "12"
+        
         ip = addr[0]
 
         try:
             osc_port = int(osc_port_str)
+            channels = int(channels_str)
         except ValueError:
-            _log(f"  Malformed HELLO from {ip}: invalid port '{osc_port_str}'")
+            _log(f"  Malformed HELLO from {ip}: invalid port or channel count")
             return
 
-        is_new, came_back = self.registry.register(controller_id, ip, osc_port)
+        is_new, came_back = self.registry.register(controller_id, ip, osc_port, channels)
 
         if is_new:
             _log(f"● Controller '{controller_id}' ({ip}:{osc_port}) ONLINE  [new]")

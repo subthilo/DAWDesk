@@ -11,6 +11,7 @@ class ControllerConnection:
     controller_id: str
     ip: str
     osc_port: int
+    channels: int = 12
     last_seen: float = field(default_factory=time.monotonic)
     status: str = 'online'  # 'online' | 'offline'
 

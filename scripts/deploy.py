@@ -29,7 +29,7 @@ def create_tarball(source_dir, output_filename):
         tar.add(source_dir, arcname=os.path.basename(source_dir), filter=exclude_filter)
     print(f"Created {output_filename}")
 
-def deploy(host, user, password, port, waveshare, rotate, controller_id):
+def deploy(host, user, password, port, waveshare, rotate, controller_id, channels):
     paramiko, scp_module = ensure_dependencies()
     from scp import SCPClient
     
@@ -74,9 +74,10 @@ def deploy(host, user, password, port, waveshare, rotate, controller_id):
         waveshare_flag = "--waveshare" if waveshare else ""
         rotate_flag = f"--rotate {rotate}" if rotate is not None else ""
         controller_id_flag = f"--controller-id {controller_id}" if controller_id else ""
+        channels_flag = f"--channels {channels}" if channels else ""
         
         # Note: We use python3 explicitly
-        cmd = f"cd {remote_project_path} && chmod +x scripts/setup_rpi.py && python3 scripts/setup_rpi.py {waveshare_flag} {rotate_flag} {controller_id_flag}"
+        cmd = f"cd {remote_project_path} && chmod +x scripts/setup_rpi.py && python3 scripts/setup_rpi.py {waveshare_flag} {rotate_flag} {controller_id_flag} {channels_flag}"
         
         # get_pty=True provides unbuffered output and allows sudo to prompt for password if needed
         # (Though we're running it with sudo inside the script which might block if it asks for a password on the PTY, 
@@ -116,8 +117,10 @@ if __name__ == "__main__":
                         help="Eindeutiger Name dieses Controllers (z.B. 'rpi-studio-1'). "
                              "Wird in device_config.json gespeichert und als Discovery-ID verwendet. "
                              "Fallback: Hostname des RPi.")
+    parser.add_argument("--channels", type=int, default=12,
+                        help="Anzahl der Kanäle auf diesem Controller. Default: 12.")
 
     args = parser.parse_args()
 
     deploy(args.host, args.user, args.password, args.port,
-           args.waveshare, args.rotate, args.controller_id)
+           args.waveshare, args.rotate, args.controller_id, args.channels)
