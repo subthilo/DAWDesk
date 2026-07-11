@@ -4,7 +4,6 @@ from kivy.app import App
 from kivy.uix.widget import Widget
 from kivy.properties import StringProperty, NumericProperty, ColorProperty, ListProperty, BooleanProperty
 from kivy.graphics import Color, Rectangle, Line, SmoothLine, Ellipse
-import math
 from kivy.core.text import Label as CoreLabel
 from kivy.clock import Clock
 
@@ -32,10 +31,15 @@ class DAWChannelStrip(Widget):
     c_pan_active = ColorProperty((0.0, 0.9, 0.9, 1))
     pan_font_size = NumericProperty(20)
 
+    # --- Interner State ---
+    _ui_ready = BooleanProperty(False)
+    _ignore_osc_send = BooleanProperty(False)
+    is_touched = BooleanProperty(False)
+
     # --- FADER PROPERTIES ---
     c_bg = ColorProperty((0.08, 0.12, 0.18, 1))
     c_track = ColorProperty((0.04, 0.06, 0.10, 1))
-    c_fader = ColorProperty((0.55, 0.62, 0.68, 1))
+    track_color = ColorProperty((0.55, 0.62, 0.68, 1)) # Default fader cap / track color
     c_meter = ColorProperty((0.0, 0.9, 0.9, 0.8))
     c_text = ColorProperty((0.85, 0.92, 0.95, 1))
     c_tick = ColorProperty((0.4, 0.4, 0.4, 1))
@@ -54,8 +58,11 @@ class DAWChannelStrip(Widget):
         self._fader_value_rect = None
         self._text_cache = {}
         
-        self.bind(pos=self._trigger_rebuild, size=self._trigger_rebuild, track_name=self._trigger_rebuild)
-        self.bind(value=self._update_dynamic, meter_value=self._update_dynamic, pan=self._update_dynamic)
+        self._name_rect = None
+        self._color_fader = None
+        
+        self.bind(pos=self._trigger_rebuild, size=self._trigger_rebuild)
+        self.bind(track_name=self._update_dynamic, track_color=self._update_dynamic, value=self._update_dynamic, meter_value=self._update_dynamic, pan=self._update_dynamic)
 
     def _trigger_rebuild(self, *args):
         Clock.unschedule(self._rebuild_canvas)
@@ -137,12 +144,8 @@ class DAWChannelStrip(Widget):
             Line(points=[geo['x'] + margin, geo['pan_y'], geo['x'] + geo['w'] - margin, geo['pan_y']], width=1.0)
             
             # --- 1. SPURNAME ---
-            tex = self._get_cached_text(self.track_name, max(10, geo['lbl_h'] * 0.4), bold=True)
-            if tex:
-                Color(*self.c_text)
-                lx = geo['center_x'] - tex.width / 2
-                ly = geo['lbl_y'] + geo['lbl_h'] / 2 - tex.height / 2
-                Rectangle(texture=tex, pos=(lx, ly), size=tex.size)
+            Color(*self.c_text)
+            self._name_rect = Rectangle(pos=(0,0), size=(0,0))
 
             # --- 2. PAN HINTERGRUND ---
             # Inaktiver Ring
@@ -194,7 +197,7 @@ class DAWChannelStrip(Widget):
             self._meter_rect = Rectangle(pos=(meter_x + 1, geo['fader_y'] + 10), size=(track_w - 2, 0))
             
             # --- 6. FADER KAPPE (C-Form / Eine Seite offen) & WERT ---
-            Color(*self.c_fader)
+            self._color_fader = Color(*self.track_color)
             # Verwende eine Linie für die Kappe anstelle eines gefüllten Rechtecks
             self._fader_line = Line(points=[], width=2.0, cap='none', joint='round')
             self._fader_cap_top = Ellipse(pos=(0, 0), size=(4, 4), segments=64)
@@ -254,6 +257,17 @@ class DAWChannelStrip(Widget):
             return
             
         geo = self._get_geometry()
+        
+        # 0. Update Name & Color
+        if self._name_rect:
+            tex = self._get_cached_text(self.track_name, max(10, geo['lbl_h'] * 0.4), bold=True)
+            if tex:
+                self._name_rect.texture = tex
+                self._name_rect.size = tex.size
+                self._name_rect.pos = (geo['center_x'] - tex.width / 2, geo['lbl_y'] + geo['lbl_h'] / 2 - tex.height / 2)
+        
+        if self._color_fader:
+            self._color_fader.rgba = self.track_color
         
         # 1. Update Pan
         d = geo['pan_h'] * 0.8
@@ -366,6 +380,7 @@ class DAWChannelStrip(Widget):
         
         if touch.y >= geo['pan_y']:
             touch.grab(self)
+            self.is_touched = True
             touch.ud['active_control'] = 'pan'
             touch.ud['start_y'] = touch.y
             touch.ud['start_pan'] = self.pan
@@ -373,6 +388,7 @@ class DAWChannelStrip(Widget):
             
         if touch.y >= geo['fader_y'] and touch.y < geo['pan_y']:
             touch.grab(self)
+            self.is_touched = True
             touch.ud['active_control'] = 'fader'
             fy = self._db_to_y(self.value, geo)
             touch.ud['offset_y'] = touch.y - fy
@@ -400,6 +416,15 @@ class DAWChannelStrip(Widget):
 
     def on_touch_up(self, touch):
         if touch.grab_current is self:
+            # Re-send final value to ensure sync with Cubase.
+            # This refreshes the broker's echo-suppression timer so stale
+            # echoes don't jump the fader after we clear is_touched.
+            ctrl = touch.ud.get('active_control')
+            if ctrl == 'fader':
+                self._send_volume_osc()
+            elif ctrl == 'pan':
+                self._send_pan_osc()
+            self.is_touched = False
             touch.ungrab(self)
             return True
         return super().on_touch_up(touch)
@@ -407,6 +432,8 @@ class DAWChannelStrip(Widget):
     # --- OSC Sending ---
     def _send_volume_osc(self):
         """Sendet nur den aktuellen Fader-Wert an den Broker."""
+        if self._ignore_osc_send:
+            return
         app = App.get_running_app()
         if not app or not getattr(app, 'osc_client', None) or self.channel_id == 0:
             return
@@ -421,6 +448,8 @@ class DAWChannelStrip(Widget):
 
     def _send_pan_osc(self):
         """Sendet nur den aktuellen Pan-Wert an den Broker."""
+        if self._ignore_osc_send:
+            return
         app = App.get_running_app()
         if not app or not getattr(app, 'osc_client', None) or self.channel_id == 0:
             return

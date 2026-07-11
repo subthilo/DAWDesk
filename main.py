@@ -4,7 +4,11 @@ import time
 import socket
 import asyncio
 from pythonosc.udp_client import SimpleUDPClient
+from pythonosc.dispatcher import Dispatcher
+from pythonosc.osc_server import ThreadingOSCUDPServer
+import threading
 from kivy.config import Config
+from kivy.lang import Builder
 
 # -------------------------------------------------------------------------
 # GERÄTEKONFIGURATION laden (vom Deployment-Skript erstellt)
@@ -158,45 +162,141 @@ class DAWDeskApp(App):
         self.channels = _device_config.get('channels', 12)
         self.osc_client = None   # Wird gesetzt sobald Broker-IP bekannt
         self._broker_ip = None
+        self.channel_strips = []
 
     def on_start(self):
         # Anfangsstatus direkt mit der ID setzen
         self.connection_status = f"◌ SEARCHING...  {self.controller_id}"
 
         # Dynamisches Hinzufügen von Kanalzügen beim Start
-        mixer = self.root.ids.mixer_layout
-        for i in range(1, self.channels + 1):
-            channel = DAWChannelStrip(
-                channel_id=i,
-                track_name=f"Ch {i}",
+        layout = self.root.ids.mixer_layout
+        for i in range(self.channels):
+            channel_id = i + 1
+            strip = DAWChannelStrip(
+                channel_id=channel_id,
+                track_name=f"Ch {channel_id}",
                 value=-60.0,
                 meter_value=-60.0,
                 pan=0.0,
                 pan_min=-100.0,
                 pan_max=100.0
             )
-            mixer.add_widget(channel)
+            self.channel_strips.append(strip)
+            layout.add_widget(strip)
+
+    from kivy.clock import mainthread
+    @mainthread
+    def update_fader_from_osc(self, channel_id: int, value: float):
+        if 1 <= channel_id <= len(self.channel_strips):
+            strip = self.channel_strips[channel_id - 1]
+            if strip.is_touched:
+                return  # Prevent MIDI feedback jitter
+            # Convert 0.0..1.0 back to dB (-60..+6)
+            db_val = value * (strip.db_max - strip.db_min) + strip.db_min
+            # Suppress near-identical updates (dedup)
+            if abs(strip.value - db_val) < 0.05:
+                return
+            strip._ignore_osc_send = True
+            strip.value = db_val
+            strip._ignore_osc_send = False
+
+    @mainthread
+    def update_pan_from_osc(self, channel_id: int, value: float):
+        if 1 <= channel_id <= len(self.channel_strips):
+            strip = self.channel_strips[channel_id - 1]
+            if strip.is_touched:
+                return  # Prevent MIDI feedback jitter
+            # Convert 0.0..1.0 back to pan (-1.0..1.0)
+            pan_val = (value * 2.0) - 1.0
+            # Suppress near-identical updates (dedup)
+            if abs(strip.pan - pan_val) < 0.01:
+                return
+            strip._ignore_osc_send = True
+            strip.pan = pan_val
+            strip._ignore_osc_send = False
+
+    @mainthread
+    def update_name_from_osc(self, channel_id: int, name: str):
+        if 1 <= channel_id <= len(self.channel_strips):
+            strip = self.channel_strips[channel_id - 1]
+            strip.track_name = name or f"Ch {channel_id}"
+
+    @mainthread
+    def update_color_from_osc(self, channel_id: int, r: float, g: float, b: float):
+        if 1 <= channel_id <= len(self.channel_strips):
+            strip = self.channel_strips[channel_id - 1]
+            strip.track_color = (r, g, b, 1.0)
+
+    def set_bank_offset(self, offset: float):
+        if hasattr(self, 'osc_client') and self.osc_client:
+            try:
+                self.osc_client.send_message(f"/broker/set_offset", int(offset))
+            except Exception as e:
+                print(f"Error sending set_offset: {e}")
 
 
 # -------------------------------------------------------------------------
 # EINSTIEGSPUNKT: asyncio + Kivy gemeinsam starten
 # -------------------------------------------------------------------------
-async def _async_main():
+async def run_app():
     app = DAWDeskApp()
     
-    # Discovery als Background-Task starten
+    # Start Discovery Loop (Background)
     discovery_task = asyncio.create_task(run_discovery_client(app))
     
-    # Warten, bis die Kivy-App beendet wird (z.B. durch SIGTERM)
-    await app.async_run('asyncio')
+    # Start OSC Server to receive feedback from Broker
+    def handle_volume(address, *args):
+        try:
+            ch = int(address.split('/')[3])
+            val = float(args[0])
+            app.update_fader_from_osc(ch, val)
+        except Exception:
+            pass
+
+    def handle_pan(address, *args):
+        try:
+            ch = int(address.split('/')[3])
+            val = float(args[0])
+            app.update_pan_from_osc(ch, val)
+        except Exception:
+            pass
+
+    def handle_name(address, *args):
+        try:
+            ch = int(address.split('/')[3])
+            name = str(args[0])
+            app.update_name_from_osc(ch, name)
+        except Exception:
+            pass
+
+    def handle_color(address, *args):
+        try:
+            ch = int(address.split('/')[3])
+            r, g, b = float(args[0]), float(args[1]), float(args[2])
+            app.update_color_from_osc(ch, r, g, b)
+        except Exception:
+            pass
+
+    dispatcher = Dispatcher()
+    dispatcher.map('/ui/fader/*/volume', handle_volume)
+    dispatcher.map('/ui/fader/*/pan', handle_pan)
+    dispatcher.map('/ui/fader/*/name', handle_name)
+    dispatcher.map('/ui/fader/*/color', handle_color)
     
-    # Endlosschleife des Discovery-Clients abbrechen, damit der Prozess sauber beenden kann
-    discovery_task.cancel()
+    # Run OSC Server in a dedicated background thread to bypass Kivy's touch event loop blocks
+    server = ThreadingOSCUDPServer(('0.0.0.0', 8001), dispatcher)
+    osc_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    osc_thread.start()
+
     try:
-        await discovery_task
+        await app.async_run('asyncio')
     except asyncio.CancelledError:
         pass
+    finally:
+        discovery_task.cancel()
+        server.shutdown()
+        print("Application closed.")
 
 
 if __name__ == '__main__':
-    asyncio.run(_async_main())
+    asyncio.run(run_app())

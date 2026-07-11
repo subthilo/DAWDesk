@@ -15,6 +15,7 @@ class ControllerConnection:
     last_seen: float = field(default_factory=time.monotonic)
     status: str = 'online'  # 'online' | 'offline'
 
+
     def update_seen(self):
         """Aktualisiert den Heartbeat-Timestamp und setzt Status auf 'online'."""
         self.last_seen = time.monotonic()

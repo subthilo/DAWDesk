@@ -20,8 +20,9 @@ BROKER_OSC_PORT = 8000  # OSC-Port des Brokers (für spätere Nutzung)
 class DiscoveryProtocol(asyncio.DatagramProtocol):
     """asyncio UDP-Protokoll-Handler für eingehende HELLO-Broadcasts."""
 
-    def __init__(self, registry: ControllerRegistry):
+    def __init__(self, registry: ControllerRegistry, on_connect_callback=None):
         self.registry = registry
+        self.on_connect_callback = on_connect_callback
         self.transport = None
 
     def connection_made(self, transport):
@@ -63,6 +64,12 @@ class DiscoveryProtocol(asyncio.DatagramProtocol):
             _log(f"● Controller '{controller_id}' ({ip}:{osc_port}) ONLINE  [new]")
         elif came_back:
             _log(f"● Controller '{controller_id}' ({ip}:{osc_port}) ONLINE  [reconnected]")
+            
+        # Robustness: Always trigger sync on HELLO. If the controller just booted, 
+        # its UI might not have been ready for the first packet. 
+        # Sending state every 5s is a great self-healing mechanism.
+        if self.on_connect_callback:
+            self.on_connect_callback(controller_id)
 
         # WELCOME-Antwort direkt an den Controller-IP senden (Unicast)
         welcome_msg = f"DAWDESK_WELCOME {BROKER_OSC_PORT}".encode('utf-8')
@@ -75,7 +82,7 @@ class DiscoveryProtocol(asyncio.DatagramProtocol):
         _log("  Discovery server stopped.")
 
 
-async def start_discovery_server(registry: ControllerRegistry):
+async def start_discovery_server(registry: ControllerRegistry, on_connect_callback=None):
     """Startet den asynchronen UDP-Discovery-Server."""
     loop = asyncio.get_running_loop()
 
@@ -85,7 +92,7 @@ async def start_discovery_server(registry: ControllerRegistry):
     sock.bind(('', DISCOVERY_PORT))
 
     transport, protocol = await loop.create_datagram_endpoint(
-        lambda: DiscoveryProtocol(registry),
+        lambda: DiscoveryProtocol(registry, on_connect_callback),
         sock=sock
     )
     return transport, protocol

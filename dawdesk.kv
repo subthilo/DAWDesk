@@ -4,6 +4,8 @@
 # UI-Definition für DAWDesk
 # High-Performance Single-Widget Architecture
 # -------------------------------------------------------------------------
+#:import MixerLayout widgets.mixer_layout.MixerLayout
+#:import Toolbar widgets.toolbar.Toolbar
 
 DAWDeskRoot:
 
@@ -11,7 +13,7 @@ DAWDeskRoot:
     # Kein Layout, keine Child-Widgets!
     # Alles wird in Python direkt auf den Canvas gezeichnet.
 
-<MixerLayout@BoxLayout>:
+<MixerLayout>:
     orientation: 'horizontal'
     padding: 10
     spacing: 5
@@ -26,7 +28,7 @@ DAWDeskRoot:
     orientation: 'vertical'
     
     # Obere Toolbar
-    BoxLayout:
+    Toolbar:
         size_hint_y: None
         height: 60
         padding: 5
@@ -45,6 +47,13 @@ DAWDeskRoot:
             halign: 'left'
             valign: 'middle'
             text_size: self.size
+            size_hint_x: 0.8
+            
+        Label:
+            text: "SWIPE TO NUDGE"
+            font_size: 14
+            color: 0.5, 0.5, 0.5, 1
+            size_hint_x: 0.2
 
     # Hauptbereich: Mixer
     MixerLayout:
