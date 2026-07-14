@@ -246,8 +246,9 @@ class DAWDeskApp(App):
             strip.is_muted = (value >= 0.5)
 
     def update_meter_from_osc(self, channel_id: int, value: float):
-        """Called from OSC thread – just buffer the value, no mainthread needed."""
-        self._meter_buffer[channel_id] = value
+        """Called from OSC thread – buffer value and timestamp."""
+        import time
+        self._meter_buffer[channel_id] = (value, time.time())
 
     @mainthread
     def update_transport_from_osc(self, cmd: str, val: float):
@@ -256,22 +257,26 @@ class DAWDeskApp(App):
             action_row.update_transport_state(cmd, val)
 
     def _flush_meters(self, dt):
-        """Called at 15fps by Clock. Applies all buffered meter values at once and decays others."""
-        snapshot, self._meter_buffer = self._meter_buffer, {}
+        """Called at 15fps by Clock. Applies all buffered meter values. Decays only if timed out."""
+        import time
+        now = time.time()
         for i, strip in enumerate(self.channel_strips):
             ch_id = i + 1
-            if ch_id in snapshot:
-                value = snapshot[ch_id]
-                if value <= 0.001:
-                    strip.meter_value = strip.db_min
-                else:
-                    strip.meter_value = strip.db_min + value * (strip.db_max - strip.db_min)
-            else:
-                # Decay meter if no new value was received (e.g., empty channel after nudging)
-                if strip.meter_value > strip.db_min:
-                    strip.meter_value -= 8.0  # Fast decay
-                    if strip.meter_value < strip.db_min:
+            if ch_id in self._meter_buffer:
+                value, timestamp = self._meter_buffer[ch_id]
+                if now - timestamp < 0.2:
+                    # Normal update from Cubase
+                    if value <= 0.001:
                         strip.meter_value = strip.db_min
+                    else:
+                        strip.meter_value = strip.db_min + value * (strip.db_max - strip.db_min)
+                    continue
+                
+            # Decay meter only if no new value was received for > 200ms
+            if strip.meter_value > strip.db_min:
+                strip.meter_value -= 4.0  # Smooth decay per frame
+                if strip.meter_value < strip.db_min:
+                    strip.meter_value = strip.db_min
 
     def set_bank_offset(self, offset: float):
         if hasattr(self, 'osc_client') and self.osc_client:
