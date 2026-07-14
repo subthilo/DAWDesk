@@ -167,6 +167,8 @@ async def run():
             client.send_message(f"/ui/fader/{channel_id}/mute", float_val)
         elif cmd == 0x07:
             client.send_message(f"/ui/fader/{channel_id}/meter", float_val)
+        elif cmd == 0x09:
+            client.send_message(f"/ui/fader/{channel_id}/arm", float_val)
 
     def send_to_rpi_string(controller_id: str, channel_id: int, cmd: int, str_val: str):
         ctrl = registry.get_all().get(controller_id)
@@ -311,6 +313,7 @@ async def run():
                                 pan = state.get_track_value(daw_index, 0x02)
                                 solo = state.get_track_value(daw_index, 0x05)
                                 mute = state.get_track_value(daw_index, 0x06)
+                                arm = state.get_track_value(daw_index, 0x09)
                                 name = state.get_track_name(daw_index)
                                 color = state.get_track_color(daw_index)
                                 
@@ -318,6 +321,7 @@ async def run():
                                 _send_if_changed(cid, local_ch, 0x02, pan, send_to_rpi)
                                 _send_if_changed(cid, local_ch, 0x05, solo, send_to_rpi)
                                 _send_if_changed(cid, local_ch, 0x06, mute, send_to_rpi)
+                                _send_if_changed(cid, local_ch, 0x09, arm, send_to_rpi)
                                 _send_if_changed(cid, local_ch, 0x03, name, send_to_rpi_string)
                                 _send_if_changed(cid, local_ch, 0x04, color, send_to_rpi_color)
             except asyncio.CancelledError:
@@ -375,12 +379,14 @@ async def run():
                 pan = state.get_track_value(daw_index, 0x02)
                 solo = state.get_track_value(daw_index, 0x05)
                 mute = state.get_track_value(daw_index, 0x06)
+                arm = state.get_track_value(daw_index, 0x09)
                 name = state.get_track_name(daw_index)
                 color = state.get_track_color(daw_index)
                 send_to_rpi(controller_id, local_ch, 0x01, vol)
                 send_to_rpi(controller_id, local_ch, 0x02, pan)
                 send_to_rpi(controller_id, local_ch, 0x05, solo)
                 send_to_rpi(controller_id, local_ch, 0x06, mute)
+                send_to_rpi(controller_id, local_ch, 0x09, arm)
                 send_to_rpi_string(controller_id, local_ch, 0x03, name)
                 send_to_rpi_color(controller_id, local_ch, 0x04, color)
                 
