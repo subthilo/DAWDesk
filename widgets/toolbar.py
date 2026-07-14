@@ -1,3 +1,4 @@
+import time
 from kivy.uix.boxlayout import BoxLayout
 from kivy.app import App
 
@@ -7,7 +8,6 @@ class Toolbar(BoxLayout):
             touch.grab(self)
             touch.ud['swipe_start_x'] = touch.x
             touch.ud['accum_dx'] = 0.0
-            import time
             touch.ud['last_nudge_time'] = time.time()
             return True
         return super().on_touch_down(touch)
@@ -17,7 +17,6 @@ class Toolbar(BoxLayout):
             dx = touch.dx
             touch.ud['accum_dx'] += dx
             threshold = 80
-            import time
             current_time = time.time()
             if current_time - touch.ud['last_nudge_time'] > 0.15:
                 if touch.ud['accum_dx'] > threshold:

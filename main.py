@@ -36,8 +36,6 @@ Config.set('postproc', 'retain_distance', '0')
 Config.set('postproc', 'jitter_distance', '0')
 Config.set('postproc', 'jitter_ignore', '1')
 
-# FPS-Monitor aktiv lassen
-Config.set('modules', 'monitor', '')
 
 import kivy
 from kivy.app import App
@@ -163,6 +161,9 @@ class DAWDeskApp(App):
         self.osc_client = None   # Wird gesetzt sobald Broker-IP bekannt
         self._broker_ip = None
         self.channel_strips = []
+        self._meter_buffer = {}  # {channel_id: float} – written by OSC thread, read by Clock
+        # Flush meter buffer at 15fps (good balance between smooth display and CPU)
+        Clock.schedule_interval(self._flush_meters, 1.0 / 15.0)
 
     def on_start(self):
         # Anfangsstatus direkt mit der ID setzen
@@ -206,8 +207,13 @@ class DAWDeskApp(App):
             strip = self.channel_strips[channel_id - 1]
             if strip.is_touched:
                 return  # Prevent MIDI feedback jitter
-            # Convert 0.0..1.0 back to pan (-1.0..1.0)
-            pan_val = (value * 2.0) - 1.0
+                
+            if value < -0.5:
+                pan_val = -999.0
+            else:
+                # Convert 0.0..1.0 back to pan (-1.0..1.0)
+                pan_val = (value * 2.0) - 1.0
+                
             # Suppress near-identical updates (dedup)
             if abs(strip.pan - pan_val) < 0.01:
                 return
@@ -226,6 +232,40 @@ class DAWDeskApp(App):
         if 1 <= channel_id <= len(self.channel_strips):
             strip = self.channel_strips[channel_id - 1]
             strip.track_color = (r, g, b, 1.0)
+
+    @mainthread
+    def update_solo_from_osc(self, channel_id: int, value: float):
+        if 1 <= channel_id <= len(self.channel_strips):
+            strip = self.channel_strips[channel_id - 1]
+            strip.is_solo = (value >= 0.5)
+
+    @mainthread
+    def update_mute_from_osc(self, channel_id: int, value: float):
+        if 1 <= channel_id <= len(self.channel_strips):
+            strip = self.channel_strips[channel_id - 1]
+            strip.is_muted = (value >= 0.5)
+
+    def update_meter_from_osc(self, channel_id: int, value: float):
+        """Called from OSC thread – just buffer the value, no mainthread needed."""
+        self._meter_buffer[channel_id] = value
+
+    def _flush_meters(self, dt):
+        """Called at 15fps by Clock. Applies all buffered meter values at once and decays others."""
+        snapshot, self._meter_buffer = self._meter_buffer, {}
+        for i, strip in enumerate(self.channel_strips):
+            ch_id = i + 1
+            if ch_id in snapshot:
+                value = snapshot[ch_id]
+                if value <= 0.001:
+                    strip.meter_value = strip.db_min
+                else:
+                    strip.meter_value = strip.db_min + value * (strip.db_max - strip.db_min)
+            else:
+                # Decay meter if no new value was received (e.g., empty channel after nudging)
+                if strip.meter_value > strip.db_min:
+                    strip.meter_value -= 8.0  # Fast decay
+                    if strip.meter_value < strip.db_min:
+                        strip.meter_value = strip.db_min
 
     def set_bank_offset(self, offset: float):
         if hasattr(self, 'osc_client') and self.osc_client:
@@ -277,11 +317,55 @@ async def run_app():
         except Exception:
             pass
 
+    def handle_solo(address, *args):
+        try:
+            ch = int(address.split('/')[3])
+            val = float(args[0])
+            app.update_solo_from_osc(ch, val)
+        except Exception:
+            pass
+
+    def handle_mute(address, *args):
+        try:
+            ch = int(address.split('/')[3])
+            val = float(args[0])
+            app.update_mute_from_osc(ch, val)
+        except Exception:
+            pass
+
+    def handle_meter(address, *args):
+        try:
+            ch = int(address.split('/')[3])
+            val = float(args[0])
+            app.update_meter_from_osc(ch, val)
+        except Exception:
+            pass
+
+    def handle_transport(address, *args):
+        try:
+            parts = address.split('/')
+            if len(parts) >= 5:
+                cmd = parts[4]
+                val = float(args[0])
+                app.update_transport_from_osc(cmd, val)
+        except Exception as e:
+            print(f"Error handling transport OSC: {e}")
+
+    @mainthread
+    def update_transport_from_osc(self, cmd: str, val: float):
+        action_row = self.root.ids.get('action_row')
+        if action_row:
+            action_row.update_transport_state(cmd, val)
+
     dispatcher = Dispatcher()
     dispatcher.map('/ui/fader/*/volume', handle_volume)
     dispatcher.map('/ui/fader/*/pan', handle_pan)
     dispatcher.map('/ui/fader/*/name', handle_name)
     dispatcher.map('/ui/fader/*/color', handle_color)
+    dispatcher.map('/ui/fader/*/solo', handle_solo)
+    dispatcher.map('/ui/fader/*/mute', handle_mute)
+    dispatcher.map('/ui/fader/*/meter', handle_meter)
+    dispatcher.map('/ui/*/transport/*', handle_transport)
     
     # Run OSC Server in a dedicated background thread to bypass Kivy's touch event loop blocks
     server = ThreadingOSCUDPServer(('0.0.0.0', 8001), dispatcher)

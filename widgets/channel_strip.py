@@ -35,6 +35,8 @@ class DAWChannelStrip(Widget):
     _ui_ready = BooleanProperty(False)
     _ignore_osc_send = BooleanProperty(False)
     is_touched = BooleanProperty(False)
+    is_solo = BooleanProperty(False)
+    is_muted = BooleanProperty(False)
 
     # --- FADER PROPERTIES ---
     c_bg = ColorProperty((0.08, 0.12, 0.18, 1))
@@ -60,9 +62,21 @@ class DAWChannelStrip(Widget):
         
         self._name_rect = None
         self._color_fader = None
+        self._mute_overlay = None
+        self._mute_overlay_color = None
+        
+        # Gesture detection state (fader)
+        self._last_tap_time = 0
+        self._long_press_event = None
+        self._touch_moved = False
+        # Gesture detection state (label – global defeat)
+        self._label_last_tap_time = 0
+        self._label_long_press_event = None
         
         self.bind(pos=self._trigger_rebuild, size=self._trigger_rebuild)
-        self.bind(track_name=self._update_dynamic, track_color=self._update_dynamic, value=self._update_dynamic, meter_value=self._update_dynamic, pan=self._update_dynamic)
+        self.bind(track_name=self._update_dynamic, track_color=self._update_dynamic, value=self._update_dynamic, pan=self._update_dynamic)
+        self.bind(is_solo=self._update_dynamic, is_muted=self._update_dynamic)
+        self.bind(meter_value=self._update_meter)
 
     def _trigger_rebuild(self, *args):
         Clock.unschedule(self._rebuild_canvas)
@@ -148,32 +162,33 @@ class DAWChannelStrip(Widget):
             self._name_rect = Rectangle(pos=(0,0), size=(0,0))
 
             # --- 2. PAN HINTERGRUND ---
-            # Inaktiver Ring
-            lw = self.pan_ring_thickness
-            d = geo['pan_h'] * 0.8
-            rx = geo['center_x'] - d / 2
-            ry = geo['pan_y'] + (geo['pan_h'] - d) / 2
-            
-            Color(*self.c_pan_inactive)
-            half_open = self.pan_opening_angle / 2.0
-            a_start = 180.0 + half_open
-            a_end = 540.0 - half_open
-            SmoothLine(ellipse=(rx, ry, d, d, a_start, a_end, 128), width=lw, cap='none')
-            
-            # Manuelle runde Kappen für den inaktiven Ring
-            cx_pan = geo['center_x']
-            cy_pan = geo['pan_y'] + geo['pan_h']/2.0
-            r_pan = d / 2.0
-            
-            x1, y1 = self._get_kivy_arc_point(cx_pan, cy_pan, r_pan, a_start)
-            Ellipse(pos=(x1 - lw, y1 - lw), size=(lw*2, lw*2), segments=64)
-            
-            x2, y2 = self._get_kivy_arc_point(cx_pan, cy_pan, r_pan, a_end)
-            Ellipse(pos=(x2 - lw, y2 - lw), size=(lw*2, lw*2), segments=64)
-            
-            # Center Dot
-            dot_d = lw * 2.0
-            SmoothLine(ellipse=(geo['center_x'] - dot_d/2, geo['pan_y'] + geo['pan_h']/2 - dot_d/2, dot_d, dot_d, 0, 360, 64), width=dot_d/2)
+            if self.pan > -900:
+                # Inaktiver Ring
+                lw = self.pan_ring_thickness
+                d = geo['pan_h'] * 0.8
+                rx = geo['center_x'] - d / 2
+                ry = geo['pan_y'] + (geo['pan_h'] - d) / 2
+                
+                Color(*self.c_pan_inactive)
+                half_open = self.pan_opening_angle / 2.0
+                a_start = 180.0 + half_open
+                a_end = 540.0 - half_open
+                SmoothLine(ellipse=(rx, ry, d, d, a_start, a_end, 128), width=lw, cap='none')
+                
+                # Manuelle runde Kappen für den inaktiven Ring
+                cx_pan = geo['center_x']
+                cy_pan = geo['pan_y'] + geo['pan_h']/2.0
+                r_pan = d / 2.0
+                
+                x1, y1 = self._get_kivy_arc_point(cx_pan, cy_pan, r_pan, a_start)
+                Ellipse(pos=(x1 - lw, y1 - lw), size=(lw*2, lw*2), segments=64)
+                
+                x2, y2 = self._get_kivy_arc_point(cx_pan, cy_pan, r_pan, a_end)
+                Ellipse(pos=(x2 - lw, y2 - lw), size=(lw*2, lw*2), segments=64)
+                
+                # Center Dot
+                dot_d = lw * 2.0
+                SmoothLine(ellipse=(geo['center_x'] - dot_d/2, geo['pan_y'] + geo['pan_h']/2 - dot_d/2, dot_d, dot_d, 0, 360, 64), width=dot_d/2)
 
 
             # --- 3. FADER HINTERGRUND & TICKS ---
@@ -237,6 +252,10 @@ class DAWChannelStrip(Widget):
                 Color(*self.c_text)
                 Rectangle(texture=tex, pos=(meter_x - 12 - tex.width, tick_y - tex.height/2), size=tex.size)
 
+            # --- MUTE OVERLAY (darkens entire channel when muted, drawn LAST to cover everything) ---
+            self._mute_overlay_color = Color(0, 0, 0, 0)  # Initially invisible
+            self._mute_overlay = Rectangle(pos=self.pos, size=self.size)
+
         # Precache alle möglichen Pan- und Fader-Werte
         self._precache_texts()
         self._update_dynamic()
@@ -269,6 +288,16 @@ class DAWChannelStrip(Widget):
         if self._color_fader:
             self._color_fader.rgba = self.track_color
         
+        # Mute overlay: darken entire channel
+        if self._mute_overlay:
+            if self.is_muted:
+                self._mute_overlay_color.rgba = (0, 0, 0, 0.65)
+                self._mute_overlay.pos = self.pos
+                self._mute_overlay.size = self.size
+            else:
+                self._mute_overlay_color.rgba = (0, 0, 0, 0)
+                self._mute_overlay.size = (0, 0)
+        
         # 1. Update Pan
         d = geo['pan_h'] * 0.8
         rx = geo['center_x'] - d / 2
@@ -277,47 +306,53 @@ class DAWChannelStrip(Widget):
         # Pan ist bei uns im Bereich -1.0 bis 1.0 intern
         mapped_pan = self.pan
         
-        rounded_val = 0
-        val_text = "C"
-        if mapped_pan < 0:
-            rounded_val = int(round(abs(mapped_pan) * abs(self.pan_min)))
-            if rounded_val > 0: val_text = f"L{rounded_val}"
-        elif mapped_pan > 0:
-            rounded_val = int(round(mapped_pan * self.pan_max))
-            if rounded_val > 0: val_text = f"R{rounded_val}"
-            
-        if rounded_val > 0:
-            total_active_range = 360.0 - self.pan_opening_angle
-            target_angle = mapped_pan * (total_active_range / 2.0)
-            
-            R = d / 2.0
-            cx = geo['center_x']
-            cy = geo['pan_y'] + geo['pan_h']/2.0
-            lw = self.pan_ring_thickness
-            
-            # Center cap at 0 degrees
-            cx0, cy0 = self._get_kivy_arc_point(cx, cy, R, 0.0)
-            self._pan_active_cap1.pos = (cx0 - lw, cy0 - lw)
-            self._pan_active_cap1.size = (lw*2, lw*2)
-            
-            if mapped_pan < 0:
-                self._pan_line.ellipse = (rx, ry, d, d, 360.0 + target_angle, 360.0, 128)
-                ax, ay = self._get_kivy_arc_point(cx, cy, R, 360.0 + target_angle)
-            else:
-                self._pan_line.ellipse = (rx, ry, d, d, 0.0, target_angle, 128)
-                ax, ay = self._get_kivy_arc_point(cx, cy, R, target_angle)
-                
-            self._pan_active_cap2.pos = (ax - lw, ay - lw)
-            self._pan_active_cap2.size = (lw*2, lw*2)
-        else:
-            self._pan_line.ellipse = (rx, ry, d, d, 359.0, 361.0, 32)
+        if mapped_pan <= -900:
+            self._pan_line.ellipse = (0, 0, 0, 0, 0, 0, 32)
             self._pan_active_cap1.size = (0, 0)
             self._pan_active_cap2.size = (0, 0)
-            
-        tex = self._get_cached_text(val_text, self.pan_font_size, bold=True)
-        self._pan_value_rect.texture = tex
-        self._pan_value_rect.size = tex.size
-        self._pan_value_rect.pos = (geo['center_x'] - tex.width/2, geo['pan_y'] + geo['pan_h']/2 - tex.height/2)
+            self._pan_value_rect.size = (0, 0)
+        else:
+            rounded_val = 0
+            val_text = "C"
+            if mapped_pan < 0:
+                rounded_val = int(round(abs(mapped_pan) * abs(self.pan_min)))
+                if rounded_val > 0: val_text = f"L{rounded_val}"
+            elif mapped_pan > 0:
+                rounded_val = int(round(mapped_pan * self.pan_max))
+                if rounded_val > 0: val_text = f"R{rounded_val}"
+                
+            if rounded_val > 0:
+                total_active_range = 360.0 - self.pan_opening_angle
+                target_angle = mapped_pan * (total_active_range / 2.0)
+                
+                R = d / 2.0
+                cx = geo['center_x']
+                cy = geo['pan_y'] + geo['pan_h']/2.0
+                lw = self.pan_ring_thickness
+                
+                # Center cap at 0 degrees
+                cx0, cy0 = self._get_kivy_arc_point(cx, cy, R, 0.0)
+                self._pan_active_cap1.pos = (cx0 - lw, cy0 - lw)
+                self._pan_active_cap1.size = (lw*2, lw*2)
+                
+                if mapped_pan < 0:
+                    self._pan_line.ellipse = (rx, ry, d, d, 360.0 + target_angle, 360.0, 128)
+                    ax, ay = self._get_kivy_arc_point(cx, cy, R, 360.0 + target_angle)
+                else:
+                    self._pan_line.ellipse = (rx, ry, d, d, 0.0, target_angle, 128)
+                    ax, ay = self._get_kivy_arc_point(cx, cy, R, target_angle)
+                    
+                self._pan_active_cap2.pos = (ax - lw, ay - lw)
+                self._pan_active_cap2.size = (lw*2, lw*2)
+            else:
+                self._pan_line.ellipse = (rx, ry, d, d, 359.0, 361.0, 32)
+                self._pan_active_cap1.size = (0, 0)
+                self._pan_active_cap2.size = (0, 0)
+                
+            tex = self._get_cached_text(val_text, self.pan_font_size, bold=True)
+            self._pan_value_rect.texture = tex
+            self._pan_value_rect.size = tex.size
+            self._pan_value_rect.pos = (geo['center_x'] - tex.width/2, geo['pan_y'] + geo['pan_h']/2 - tex.height/2)
 
         # 2. Update Fader Kappe (C-Form)
         fy = self._db_to_y(self.value, geo)
@@ -366,7 +401,17 @@ class DAWChannelStrip(Widget):
         # Zahl noch ein kleines bisschen weiter nach rechts geschoben (+18 statt +15)
         self._fader_value_rect.pos = (kx + kw - v_tex.width + 18, fy - v_tex.height/2)
         
-        # 3. Update Meter
+        # 3. Update Meter (initial)
+        self._update_meter()
+
+    def _update_meter(self, *args):
+        """Lightweight meter-only update – only changes the meter rect height."""
+        if not self._meter_rect:
+            return
+        if self.meter_value <= self.db_min:
+            self._meter_rect.size = (self._meter_rect.size[0], 0)
+            return
+        geo = self._get_geometry()
         my_bot = geo['fader_y'] + 10
         my_top = self._db_to_y(self.meter_value, geo)
         self._meter_rect.size = (self._meter_rect.size[0], max(0, my_top - my_bot))
@@ -390,8 +435,42 @@ class DAWChannelStrip(Widget):
             touch.grab(self)
             self.is_touched = True
             touch.ud['active_control'] = 'fader'
+            touch.ud['touch_start_x'] = touch.x
+            touch.ud['touch_start_y'] = touch.y
+            self._touch_moved = False
             fy = self._db_to_y(self.value, geo)
             touch.ud['offset_y'] = touch.y - fy
+            
+            # Double-tap detection (Solo)
+            now = time.monotonic()
+            if now - self._last_tap_time < 0.35:
+                self._send_solo_osc()
+                self._last_tap_time = 0  # Reset to prevent triple-tap
+                touch.ungrab(self)
+                self.is_touched = False
+                return True
+            self._last_tap_time = now
+            
+            # Long-press detection (Mute) – schedule check
+            self._long_press_event = Clock.schedule_once(self._on_long_press, 0.5)
+            return True
+        
+        # --- LABEL AREA (global defeat gestures) ---
+        if touch.y < geo['fader_y']:
+            touch.grab(self)
+            touch.ud['active_control'] = 'label'
+            
+            # Double-tap detection (Global Solo Defeat)
+            now = time.monotonic()
+            if now - self._label_last_tap_time < 0.35:
+                self._send_solo_defeat_osc()
+                self._label_last_tap_time = 0
+                touch.ungrab(self)
+                return True
+            self._label_last_tap_time = now
+            
+            # Long-press detection (Global Mute Defeat)
+            self._label_long_press_event = Clock.schedule_once(self._on_label_long_press, 0.5)
             return True
             
         return super().on_touch_down(touch)
@@ -408,19 +487,35 @@ class DAWChannelStrip(Widget):
                 self.pan = max(-1.0, min(1.0, new_val))
                 self._send_pan_osc()
             elif ctrl == 'fader':
-                target_y = touch.y - touch.ud.get('offset_y', 0)
-                self.value = self._y_to_db(target_y, geo)
-                self._send_volume_osc()
+                # Check if finger moved beyond threshold (10px) before treating as drag
+                dx = touch.x - touch.ud.get('touch_start_x', touch.x)
+                dy = touch.y - touch.ud.get('touch_start_y', touch.y)
+                dist = (dx*dx + dy*dy) ** 0.5
+                
+                if dist > 10:
+                    self._touch_moved = True
+                    # Cancel long-press once real movement detected
+                    if self._long_press_event:
+                        self._long_press_event.cancel()
+                        self._long_press_event = None
+                    target_y = touch.y - touch.ud.get('offset_y', 0)
+                    self.value = self._y_to_db(target_y, geo)
+                    self._send_volume_osc()
             return True
         return super().on_touch_move(touch)
 
     def on_touch_up(self, touch):
         if touch.grab_current is self:
-            # Re-send final value to ensure sync with Cubase.
-            # This refreshes the broker's echo-suppression timer so stale
-            # echoes don't jump the fader after we clear is_touched.
             ctrl = touch.ud.get('active_control')
-            if ctrl == 'fader':
+            # Cancel any pending long-press
+            if self._long_press_event:
+                self._long_press_event.cancel()
+                self._long_press_event = None
+            if self._label_long_press_event:
+                self._label_long_press_event.cancel()
+                self._label_long_press_event = None
+            # Re-send final value to ensure sync with Cubase.
+            if ctrl == 'fader' and self._touch_moved:
                 self._send_volume_osc()
             elif ctrl == 'pan':
                 self._send_pan_osc()
@@ -428,6 +523,15 @@ class DAWChannelStrip(Widget):
             touch.ungrab(self)
             return True
         return super().on_touch_up(touch)
+
+    def _on_long_press(self, dt):
+        """Called when user holds finger on fader for 500ms without moving."""
+        if not self._touch_moved:
+            self._send_mute_osc()
+
+    def _on_label_long_press(self, dt):
+        """Called when user holds finger on label for 500ms → Global Mute Defeat."""
+        self._send_mute_defeat_osc()
 
     # --- OSC Sending ---
     def _send_volume_osc(self):
@@ -453,11 +557,58 @@ class DAWChannelStrip(Widget):
         app = App.get_running_app()
         if not app or not getattr(app, 'osc_client', None) or self.channel_id == 0:
             return
-        # -1.0..1.0 → 0.0..1.0  (0.5 = Mitte)
         pan = (self.pan + 1.0) / 2.0
         try:
             app.osc_client.send_message(
                 f'/ui/{app.controller_id}/fader/{self.channel_id}/pan', pan
+            )
+        except Exception:
+            pass
+
+    def _send_solo_osc(self):
+        """Sendet Solo-Toggle an den Broker."""
+        app = App.get_running_app()
+        if not app or not getattr(app, 'osc_client', None) or self.channel_id == 0:
+            return
+        try:
+            app.osc_client.send_message(
+                f'/ui/{app.controller_id}/fader/{self.channel_id}/solo', 1.0
+            )
+        except Exception:
+            pass
+
+    def _send_mute_osc(self):
+        """Sendet Mute-Toggle an den Broker."""
+        app = App.get_running_app()
+        if not app or not getattr(app, 'osc_client', None) or self.channel_id == 0:
+            return
+        try:
+            app.osc_client.send_message(
+                f'/ui/{app.controller_id}/fader/{self.channel_id}/mute', 1.0
+            )
+        except Exception:
+            pass
+
+    def _send_solo_defeat_osc(self):
+        """Sendet Global Solo Defeat an den Broker."""
+        app = App.get_running_app()
+        if not app or not getattr(app, 'osc_client', None):
+            return
+        try:
+            app.osc_client.send_message(
+                f'/ui/{app.controller_id}/global/solo_defeat', 1.0
+            )
+        except Exception:
+            pass
+
+    def _send_mute_defeat_osc(self):
+        """Sendet Global Mute Defeat an den Broker."""
+        app = App.get_running_app()
+        if not app or not getattr(app, 'osc_client', None):
+            return
+        try:
+            app.osc_client.send_message(
+                f'/ui/{app.controller_id}/global/mute_defeat', 1.0
             )
         except Exception:
             pass

@@ -6,6 +6,7 @@
 # -------------------------------------------------------------------------
 #:import MixerLayout widgets.mixer_layout.MixerLayout
 #:import Toolbar widgets.toolbar.Toolbar
+#:import ActionRow widgets.action_row.ActionRow
 
 DAWDeskRoot:
 
@@ -50,7 +51,7 @@ DAWDeskRoot:
             size_hint_x: 0.8
             
         Label:
-            text: "SWIPE TO NUDGE"
+            text: "SWIPE DISABLED"
             font_size: 14
             color: 0.5, 0.5, 0.5, 1
             size_hint_x: 0.2
@@ -58,3 +59,7 @@ DAWDeskRoot:
     # Hauptbereich: Mixer
     MixerLayout:
         id: mixer_layout
+
+    # Action Row (Nudge, Ebenen)
+    ActionRow:
+        id: action_row

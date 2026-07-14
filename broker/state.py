@@ -7,6 +7,7 @@ class BrokerState:
         self.registry = registry
         self.bank_offset = 0  # Our "Nudge" offset
         self.track_values = {} # {track_index: {cmd: float_val}}
+        self.transport_state = {0: 0.0, 1: 0.0, 2: 0.0} # {cmd_idx: float_val}
         self.on_routing_changed = None # Callback when offset changes
 
     def update_track_value(self, track: int, cmd: int, val: float):
@@ -15,7 +16,8 @@ class BrokerState:
         self.track_values[track][cmd] = val
 
     def get_track_value(self, track: int, cmd: int) -> float:
-        return self.track_values.get(track, {}).get(cmd, 0.0)
+        default_val = 0.5 if cmd == 0x02 else 0.0
+        return self.track_values.get(track, {}).get(cmd, default_val)
 
     def update_track_name(self, track: int, name: str):
         if track not in self.track_values:
