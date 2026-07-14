@@ -93,10 +93,6 @@ class CubaseAdapter:
         self.parse_midi_message(msg)
 
     def parse_midi_message(self, msg: mido.Message):
-        # Ignore VU Meters (Channel 11-12) to prevent spam
-        if getattr(msg, 'channel', -1) in (10, 11):
-            return
-            
         if _MIDI_DEBUG:
             _log(f"[Cubase -> Broker] {msg}")
 
