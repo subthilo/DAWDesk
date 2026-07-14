@@ -100,15 +100,10 @@ var stopButton = deviceSurface.makeButton(1, 12, 1, 2);
 var recordButton = deviceSurface.makeButton(2, 12, 2, 2);
 var cycleButton = deviceSurface.makeButton(4, 12, 2, 2);
 
-playButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).bindToNote(14, 104);
-stopButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).bindToNote(14, 105);
-recordButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).bindToNote(14, 106);
-cycleButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).bindToNote(14, 107);
-
-playButton.mSurfaceValue.mMidiBinding.setOutputPort(midiOutput).bindToNote(14, 104);
-stopButton.mSurfaceValue.mMidiBinding.setOutputPort(midiOutput).bindToNote(14, 105);
-recordButton.mSurfaceValue.mMidiBinding.setOutputPort(midiOutput).bindToNote(14, 106);
-cycleButton.mSurfaceValue.mMidiBinding.setOutputPort(midiOutput).bindToNote(14, 107);
+playButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).setOutputPort(midiOutput).bindToNote(14, 104);
+stopButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).setOutputPort(midiOutput).bindToNote(14, 105);
+recordButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).setOutputPort(midiOutput).bindToNote(14, 106);
+cycleButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).setOutputPort(midiOutput).bindToNote(14, 107);
 
 // -------------------------------------------------------------------------
 // PAGE & BINDINGS
