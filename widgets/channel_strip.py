@@ -461,15 +461,32 @@ class DAWChannelStrip(Widget):
             fy = self._db_to_y(self.value, geo)
             touch.ud['offset_y'] = touch.y - fy
             
-            # Double-tap detection (Solo)
+            # Check if touch is vertically on the fader cap (fh = 40, so +/- 20, we use 25 for tolerance)
+            on_cap = abs(touch.y - fy) <= 25
+            
             now = time.monotonic()
-            if now - self._last_tap_time < 0.35:
-                self._send_solo_osc()
-                self._last_tap_time = 0  # Reset to prevent triple-tap
-                touch.ungrab(self)
-                self.is_touched = False
-                return True
-            self._last_tap_time = now
+            
+            if on_cap:
+                # Cap double-tap -> Reset to 0 dB
+                if now - self._last_tap_time < 0.35 and getattr(self, '_last_tap_was_cap', False):
+                    self.value = 0.0
+                    self._send_volume_osc()
+                    self._last_tap_time = 0
+                    touch.ungrab(self)
+                    self.is_touched = False
+                    return True
+                self._last_tap_time = now
+                self._last_tap_was_cap = True
+            else:
+                # Non-cap double-tap -> Solo
+                if now - self._last_tap_time < 0.35 and not getattr(self, '_last_tap_was_cap', False):
+                    self._send_solo_osc()
+                    self._last_tap_time = 0  # Reset to prevent triple-tap
+                    touch.ungrab(self)
+                    self.is_touched = False
+                    return True
+                self._last_tap_time = now
+                self._last_tap_was_cap = False
             
             # Long-press detection (Mute) – schedule check
             self._long_press_event = Clock.schedule_once(self._on_long_press, 0.5)
