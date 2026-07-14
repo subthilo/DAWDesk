@@ -6,7 +6,7 @@ import asyncio
 from .logger import _log
 
 # Set DAWDESK_MIDI_DEBUG=1 to log every MIDI message
-_MIDI_DEBUG = True
+_MIDI_DEBUG = False
 
 
 def _track_to_msb_cc(track_within_channel: int) -> int:
@@ -90,9 +90,26 @@ class CubaseAdapter:
             self._callback(cmd, track_index, value)
 
     def _on_midi_in(self, msg):
-        if _MIDI_DEBUG:
-            _log(f"  [Cubase -> Broker] {msg}")
-        
+        self.parse_midi_message(msg)
+
+    def parse_midi_message(self, msg: mido.Message):
+        if _MIDI_DEBUG and msg.type in ('note_on', 'note_off'):
+            _log(f"[Cubase -> Broker] {msg}")
+
+        # Transport Feedback (Channel 15, Notes 104-107)
+        if msg.type in ('note_on', 'note_off') and msg.channel == 14 and 104 <= msg.note <= 107:
+            float_val = 1.0 if (msg.type == 'note_on' and msg.velocity > 0) else 0.0
+            if msg.note == 104:
+                self._fire_callback(0x08, 0, float_val)  # play
+            elif msg.note == 105:
+                if float_val == 1.0: # stopped
+                    self._fire_callback(0x08, 0, 0.0) # set play to false
+            elif msg.note == 106:
+                self._fire_callback(0x08, 1, float_val)  # rec
+            elif msg.note == 107:
+                self._fire_callback(0x08, 2, float_val)  # loop
+            return
+
         # Track Name via SysEx (DAWDesk Custom 7D)
         if msg.type == 'sysex':
             return
