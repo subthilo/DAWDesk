@@ -72,6 +72,8 @@ class DAWChannelStrip(Widget):
         # Gesture detection state (label – global defeat)
         self._label_last_tap_time = 0
         self._label_long_press_event = None
+        # Gesture detection state (pan)
+        self._pan_last_tap_time = 0
         
         self.bind(pos=self._trigger_rebuild, size=self._trigger_rebuild)
         self.bind(track_name=self._update_dynamic, track_color=self._update_dynamic, value=self._update_dynamic, pan=self._update_dynamic)
@@ -448,6 +450,18 @@ class DAWChannelStrip(Widget):
             touch.ud['active_control'] = 'pan'
             touch.ud['start_y'] = touch.y
             touch.ud['start_pan'] = self.pan
+            
+            # Double-tap detection (Reset Pan to Center)
+            now = time.monotonic()
+            if now - self._pan_last_tap_time < 0.35:
+                self.pan = 0.0
+                self._send_pan_osc()
+                self._pan_last_tap_time = 0
+                touch.ungrab(self)
+                self.is_touched = False
+                return True
+            self._pan_last_tap_time = now
+            
             return True
             
         # --- FADER AREA ---
