@@ -249,6 +249,12 @@ class DAWDeskApp(App):
         """Called from OSC thread – just buffer the value, no mainthread needed."""
         self._meter_buffer[channel_id] = value
 
+    @mainthread
+    def update_transport_from_osc(self, cmd: str, val: float):
+        action_row = self.root.ids.get('action_row')
+        if action_row:
+            action_row.update_transport_state(cmd, val)
+
     def _flush_meters(self, dt):
         """Called at 15fps by Clock. Applies all buffered meter values at once and decays others."""
         snapshot, self._meter_buffer = self._meter_buffer, {}
@@ -350,12 +356,6 @@ async def run_app():
                 app.update_transport_from_osc(cmd, val)
         except Exception as e:
             print(f"Error handling transport OSC: {e}")
-
-    @mainthread
-    def update_transport_from_osc(self, cmd: str, val: float):
-        action_row = self.root.ids.get('action_row')
-        if action_row:
-            action_row.update_transport_state(cmd, val)
 
     dispatcher = Dispatcher()
     dispatcher.map('/ui/fader/*/volume', handle_volume)
