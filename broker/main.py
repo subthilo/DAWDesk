@@ -384,6 +384,10 @@ async def run():
                 send_to_rpi_string(controller_id, local_ch, 0x03, name)
                 send_to_rpi_color(controller_id, local_ch, 0x04, color)
                 
+        # Push global transport state
+        for cmd_idx, val in state.transport_state.items():
+            send_to_rpi_transport(controller_id, cmd_idx, 0x08, val)
+                
         # If cache is completely empty, it means Cubase hasn't sent us anything yet.
         # Force a sync so the tablet gets the actual Cubase state instead of zeros.
         if not _received_cubase_events:

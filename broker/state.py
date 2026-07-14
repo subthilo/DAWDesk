@@ -19,6 +19,12 @@ class BrokerState:
         default_val = 0.5 if cmd == 0x02 else 0.0
         return self.track_values.get(track, {}).get(cmd, default_val)
 
+    def update_transport_state(self, cmd_idx: int, val: float):
+        self.transport_state[cmd_idx] = val
+        
+    def get_transport_state(self, cmd_idx: int) -> float:
+        return self.transport_state.get(cmd_idx, 0.0)
+
     def update_track_name(self, track: int, name: str):
         if track not in self.track_values:
             self.track_values[track] = {}
