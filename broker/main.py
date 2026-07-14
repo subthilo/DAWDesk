@@ -239,7 +239,12 @@ async def run():
             _sent_state_cache[key] = val
             _osc_queue.append((send_func, cid, local_ch, cmd, val))
 
+    _received_cubase_events = False
+
     def on_cubase_event(cmd: int, track: int, val):
+        nonlocal _received_cubase_events
+        _received_cubase_events = True
+        
         if cmd == 0x08:
             state.transport_state[track] = float(val)
             for cid in state.registry.get_all().keys():
@@ -321,6 +326,34 @@ async def run():
     # 4. Background tasks
     watchdog_task = asyncio.create_task(registry_watchdog(registry))
     
+    _sync_in_progress = False
+
+    async def request_cubase_state():
+        """Force Cubase to dump its state by shifting banks back and forth."""
+        nonlocal _sync_in_progress
+        if _sync_in_progress: return
+        _sync_in_progress = True
+        try:
+            _log("Requesting full state sync from Cubase...")
+            # 1. Force bank to the far left (0-59) just in case
+            for _ in range(2):
+                cubase_adapter.send_nudge(-1)
+                await asyncio.sleep(0.1)
+            
+            # 2. Nudge right (60-119). Cubase will dump state for 60-119.
+            cubase_adapter.send_nudge(1)
+            await asyncio.sleep(0.8)  # Wait for Cubase to process and send
+            
+            # 3. Nudge left (0-59). Cubase will dump state for 0-59.
+            cubase_adapter.send_nudge(-1)
+            await asyncio.sleep(0.8)
+            _log("Cubase state sync complete.")
+            
+            # 4. Push newly cached state to all connected tablets
+            on_routing_changed()
+        finally:
+            _sync_in_progress = False
+
     def on_controller_connected(controller_id: str):
         """Sends full cached state to a (re)connected controller. Also called on every HELLO for self-healing."""
         ctrl = registry.get_all().get(controller_id)
@@ -341,21 +374,23 @@ async def run():
                 send_to_rpi(controller_id, local_ch, 0x06, mute)
                 send_to_rpi_string(controller_id, local_ch, 0x03, name)
                 send_to_rpi_color(controller_id, local_ch, 0x04, color)
+                
+        # If cache is completely empty, it means Cubase hasn't sent us anything yet.
+        # Force a sync so the tablet gets the actual Cubase state instead of zeros.
+        if not _received_cubase_events:
+            asyncio.create_task(request_cubase_state())
         
     discovery_transport, discovery_protocol = await start_discovery_server(registry, on_connect_callback=on_controller_connected)
     osc_transport, osc_protocol = await start_osc_server(state, cubase_adapter)
     
     # 5. Request Cubase state after MIDI port is ready.
-    # LIMITATION: Virtual MIDI ports are process-local. After broker restart,
-    # Cubase loses the connection and the user must reload the MIDI Remote script
-    # in Cubase ("Skripte neu lad.") to re-establish the link.
-    # The nudge below only works if Cubase has already detected the port.
-    async def request_cubase_state():
-        await asyncio.sleep(2.0)
-        cubase_adapter.send_nudge(-1)
-        cubase_adapter.send_nudge(1)
+    # We delay this to give Cubase time to detect the virtual MIDI port.
+    async def initial_request():
+        await asyncio.sleep(5.0)
+        if not _received_cubase_events:
+            await request_cubase_state()
     
-    asyncio.create_task(request_cubase_state())
+    asyncio.create_task(initial_request())
 
     try:
         await asyncio.gather(
