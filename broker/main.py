@@ -18,13 +18,22 @@ from kivy.uix.boxlayout import BoxLayout
 
 kivy.require('2.0.0')
 
-from .registry import ControllerRegistry
-from .discovery import start_discovery_server
-from .osc_server import start_osc_server
-from .config import BrokerConfig
-from .logger import _log, logger
-from .state import BrokerState
-from .cubase_adapter import CubaseAdapter
+try:
+    from broker.registry import ControllerRegistry
+    from broker.discovery import start_discovery_server
+    from broker.osc_server import start_osc_server
+    from broker.config import BrokerConfig
+    from broker.logger import _log, logger
+    from broker.state import BrokerState
+    from broker.cubase_adapter import CubaseAdapter
+except ImportError:
+    from registry import ControllerRegistry
+    from discovery import start_discovery_server
+    from osc_server import start_osc_server
+    from config import BrokerConfig
+    from logger import _log, logger
+    from state import BrokerState
+    from cubase_adapter import CubaseAdapter
 
 WATCHDOG_INTERVAL = 5.0  # Sekunden zwischen Timeout-Checks
 

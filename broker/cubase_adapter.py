@@ -6,7 +6,7 @@ import asyncio
 from .logger import _log
 
 # Set DAWDESK_MIDI_DEBUG=1 to log every MIDI message
-_MIDI_DEBUG = False
+_MIDI_DEBUG = True
 
 
 def _track_to_msb_cc(track_within_channel: int) -> int:
