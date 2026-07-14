@@ -27,34 +27,6 @@ DAWDeskRoot:
 
 <DAWDeskRoot@BoxLayout>:
     orientation: 'vertical'
-    
-    # Obere Toolbar
-    Toolbar:
-        size_hint_y: None
-        height: 60
-        padding: 5
-        spacing: 10
-        canvas.before:
-            Color:
-                rgba: 0.15, 0.2, 0.25, 1
-            Rectangle:
-                pos: self.pos
-                size: self.size
-                
-        Label:
-            text: app.connection_status
-            font_size: 18
-            bold: True
-            halign: 'left'
-            valign: 'middle'
-            text_size: self.size
-            size_hint_x: 0.8
-            
-        Label:
-            text: "SWIPE DISABLED"
-            font_size: 14
-            color: 0.5, 0.5, 0.5, 1
-            size_hint_x: 0.2
 
     # Hauptbereich: Mixer
     MixerLayout:

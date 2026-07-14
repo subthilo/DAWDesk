@@ -94,9 +94,9 @@ class DAWChannelStrip(Widget):
         
         return {
             'pad': pad,
-            'lbl_y': y, 'lbl_h': lbl_h,
-            'pan_y': y + h - pan_h, 'pan_h': pan_h,
-            'fader_y': y + lbl_h, 'fader_h': fader_h,
+            'fader_y': y, 'fader_h': fader_h,
+            'pan_y': y + fader_h, 'pan_h': pan_h,
+            'lbl_y': y + fader_h + pan_h, 'lbl_h': lbl_h,
             'center_x': x + w / 2,
             'w': w, 'h': h, 'x': x, 'y': y
         }
@@ -152,10 +152,10 @@ class DAWChannelStrip(Widget):
             # --- 0. SEPARATOREN ---
             Color(0.2, 0.2, 0.2, 1)  # Dezentes Grau für Trennlinien
             margin = 15  # Linien gehen nicht über die volle Breite
-            # Linie zwischen Name (unten) und Fader
-            Line(points=[geo['x'] + margin, geo['fader_y'], geo['x'] + geo['w'] - margin, geo['fader_y']], width=1.0)
-            # Linie zwischen Fader und Pan (oben)
+            # Linie zwischen Fader (unten) und Pan (Mitte)
             Line(points=[geo['x'] + margin, geo['pan_y'], geo['x'] + geo['w'] - margin, geo['pan_y']], width=1.0)
+            # Linie zwischen Pan (Mitte) und Name (oben)
+            Line(points=[geo['x'] + margin, geo['lbl_y'], geo['x'] + geo['w'] - margin, geo['lbl_y']], width=1.0)
             
             # --- 1. SPURNAME ---
             Color(*self.c_text)
@@ -423,7 +423,26 @@ class DAWChannelStrip(Widget):
             
         geo = self._get_geometry()
         
-        if touch.y >= geo['pan_y']:
+        # --- LABEL AREA (global defeat gestures) ---
+        if touch.y >= geo['lbl_y']:
+            touch.grab(self)
+            touch.ud['active_control'] = 'label'
+            
+            # Double-tap detection (Global Solo Defeat)
+            now = time.monotonic()
+            if now - self._label_last_tap_time < 0.35:
+                self._send_solo_defeat_osc()
+                self._label_last_tap_time = 0
+                touch.ungrab(self)
+                return True
+            self._label_last_tap_time = now
+            
+            # Long-press detection (Global Mute Defeat)
+            self._label_long_press_event = Clock.schedule_once(self._on_label_long_press, 0.5)
+            return True
+            
+        # --- PAN AREA ---
+        if touch.y >= geo['pan_y'] and touch.y < geo['lbl_y']:
             touch.grab(self)
             self.is_touched = True
             touch.ud['active_control'] = 'pan'
@@ -431,6 +450,7 @@ class DAWChannelStrip(Widget):
             touch.ud['start_pan'] = self.pan
             return True
             
+        # --- FADER AREA ---
         if touch.y >= geo['fader_y'] and touch.y < geo['pan_y']:
             touch.grab(self)
             self.is_touched = True
@@ -453,24 +473,6 @@ class DAWChannelStrip(Widget):
             
             # Long-press detection (Mute) – schedule check
             self._long_press_event = Clock.schedule_once(self._on_long_press, 0.5)
-            return True
-        
-        # --- LABEL AREA (global defeat gestures) ---
-        if touch.y < geo['fader_y']:
-            touch.grab(self)
-            touch.ud['active_control'] = 'label'
-            
-            # Double-tap detection (Global Solo Defeat)
-            now = time.monotonic()
-            if now - self._label_last_tap_time < 0.35:
-                self._send_solo_defeat_osc()
-                self._label_last_tap_time = 0
-                touch.ungrab(self)
-                return True
-            self._label_last_tap_time = now
-            
-            # Long-press detection (Global Mute Defeat)
-            self._label_long_press_event = Clock.schedule_once(self._on_label_long_press, 0.5)
             return True
             
         return super().on_touch_down(touch)
