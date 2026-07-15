@@ -19,7 +19,6 @@ var panElements = [];
 var soloElements = [];
 var muteElements = [];
 var meterElements = [];
-var armElements = [];
 var labelElements = [];
 var lastTitle = [];   // Cache: last sent title per channel
 
@@ -36,7 +35,6 @@ for (var i = 0; i < NUM_CHANNELS; ++i) {
         var pan = deviceSurface.makeKnob(index * 2, 0, 2, 2);
         var solo = deviceSurface.makeButton(index * 2, 7, 1, 1);
         var mute = deviceSurface.makeButton(index * 2 + 1, 7, 1, 1);
-        var arm = deviceSurface.makeButton(index * 2 + 1, 11, 1, 1);
         
         // CRITICAL: A Fader alone does not trigger Text callbacks. We MUST create a Label
         var label = deviceSurface.makeLabelField(index * 2, 6, 2, 1);
@@ -45,7 +43,6 @@ for (var i = 0; i < NUM_CHANNELS; ++i) {
         panElements.push(pan);
         soloElements.push(solo);
         muteElements.push(mute);
-        armElements.push(arm);
         labelElements.push(label);
         
         // Fader = CC 1..5, 7..31 (MSB), skip CC 6 (Data Entry, intercepted by Cubase NRPN)
@@ -81,14 +78,6 @@ for (var i = 0; i < NUM_CHANNELS; ++i) {
             .setInputPort(midiInput)
             .setOutputPort(midiOutput)
             .bindToControlChange(muteCh, muteCC);
-
-        // Arm = Base Ch 12. Uses Ch 12 and 13. CC 1..60
-        var armCh = 12 + Math.floor(index / 60);
-        var armCC = 1 + (index % 60);
-        arm.mSurfaceValue.mMidiBinding
-            .setInputPort(midiInput)
-            .setOutputPort(midiOutput)
-            .bindToControlChange(armCh, armCC);
 
         // VU Meter = Base Ch 10. Uses Ch 10 and 11. CC 1..60
         var meter = deviceSurface.makeKnob(index * 2, 10, 1, 1);
@@ -159,9 +148,6 @@ for (var i = 0; i < NUM_CHANNELS; ++i) {
         
         // Bind Mute
         page.makeValueBinding(muteElements[index].mSurfaceValue, channelBankItem.mValue.mMute);
-        
-        // Bind Record Arm
-        page.makeValueBinding(armElements[index].mSurfaceValue, channelBankItem.mValue.mRecordEnable);
         
         // Bind VU Meter
         page.makeValueBinding(meterElements[index].mSurfaceValue, channelBankItem.mValue.mVUMeter);

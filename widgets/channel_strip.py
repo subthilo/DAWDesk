@@ -37,7 +37,6 @@ class DAWChannelStrip(Widget):
     is_touched = BooleanProperty(False)
     is_solo = BooleanProperty(False)
     is_muted = BooleanProperty(False)
-    is_armed = BooleanProperty(False)
 
     # --- FADER PROPERTIES ---
     c_bg = ColorProperty((0.08, 0.12, 0.18, 1))
@@ -75,13 +74,10 @@ class DAWChannelStrip(Widget):
         self._label_long_press_event = None
         # Gesture detection state (pan)
         self._pan_last_tap_time = 0
-        self._long_press_fader_cap_event = None
-        self._arm_frame = None
-        self._arm_frame_color = None
         
         self.bind(pos=self._trigger_rebuild, size=self._trigger_rebuild)
         self.bind(track_name=self._update_dynamic, track_color=self._update_dynamic, value=self._update_dynamic, pan=self._update_dynamic)
-        self.bind(is_solo=self._update_dynamic, is_muted=self._update_dynamic, is_armed=self._update_dynamic)
+        self.bind(is_solo=self._update_dynamic, is_muted=self._update_dynamic)
         self.bind(meter_value=self._update_meter)
 
     def _trigger_rebuild(self, *args):
@@ -261,10 +257,6 @@ class DAWChannelStrip(Widget):
             # --- MUTE OVERLAY (darkens entire channel when muted, drawn LAST to cover everything) ---
             self._mute_overlay_color = Color(0, 0, 0, 0)  # Initially invisible
             self._mute_overlay = Rectangle(pos=self.pos, size=self.size)
-            
-            # --- ARM FRAME (drawn LAST, around the whole strip) ---
-            self._arm_frame_color = Color(1, 0, 0, 0) # Initially transparent
-            self._arm_frame = Line(rectangle=(self.x, self.y, self.width, self.height), width=1.5)
 
         # Precache alle möglichen Pan- und Fader-Werte
         self._precache_texts()
@@ -307,14 +299,6 @@ class DAWChannelStrip(Widget):
             else:
                 self._mute_overlay_color.rgba = (0, 0, 0, 0)
                 self._mute_overlay.size = (0, 0)
-                
-        # Arm frame: red border if armed
-        if self._arm_frame:
-            if self.is_armed:
-                self._arm_frame_color.rgba = (1, 0, 0, 1)
-                self._arm_frame.rectangle = (self.x, self.y, self.width, self.height)
-            else:
-                self._arm_frame_color.rgba = (0, 0, 0, 0)
         
         # 1. Update Pan
         d = geo['pan_h'] * 0.8
@@ -507,9 +491,6 @@ class DAWChannelStrip(Widget):
                     return True
                 self._last_tap_time = now
                 self._last_tap_was_cap = True
-                
-                # Cap Long-press -> Arm
-                self._long_press_fader_cap_event = Clock.schedule_once(self._on_long_press_fader_cap, 0.5)
             else:
                 # Non-cap double-tap -> Solo
                 if now - self._last_tap_time < 0.35 and not getattr(self, '_last_tap_was_cap', False):
@@ -521,8 +502,8 @@ class DAWChannelStrip(Widget):
                 self._last_tap_time = now
                 self._last_tap_was_cap = False
             
-                # Non-cap Long-press -> Mute
-                self._long_press_event = Clock.schedule_once(self._on_long_press, 0.5)
+            # Long-press detection (Mute) – schedule check
+            self._long_press_event = Clock.schedule_once(self._on_long_press, 0.5)
             return True
             
         return super().on_touch_down(touch)
@@ -550,9 +531,6 @@ class DAWChannelStrip(Widget):
                     if self._long_press_event:
                         self._long_press_event.cancel()
                         self._long_press_event = None
-                    if getattr(self, '_long_press_fader_cap_event', None):
-                        self._long_press_fader_cap_event.cancel()
-                        self._long_press_fader_cap_event = None
                     target_y = touch.y - touch.ud.get('offset_y', 0)
                     self.value = self._y_to_db(target_y, geo)
                     self._send_volume_osc()
@@ -566,9 +544,6 @@ class DAWChannelStrip(Widget):
             if self._long_press_event:
                 self._long_press_event.cancel()
                 self._long_press_event = None
-            if getattr(self, '_long_press_fader_cap_event', None):
-                self._long_press_fader_cap_event.cancel()
-                self._long_press_fader_cap_event = None
             if self._label_long_press_event:
                 self._label_long_press_event.cancel()
                 self._label_long_press_event = None
@@ -590,11 +565,6 @@ class DAWChannelStrip(Widget):
     def _on_label_long_press(self, dt):
         """Called when user holds finger on label for 500ms → Global Mute Defeat."""
         self._send_mute_defeat_osc()
-
-    def _on_long_press_fader_cap(self, dt):
-        """Called when user holds finger on fader cap for 500ms → Record Arm Toggle."""
-        if not self._touch_moved:
-            self._send_arm_osc()
 
     # --- OSC Sending ---
     def _send_volume_osc(self):
@@ -624,20 +594,6 @@ class DAWChannelStrip(Widget):
         try:
             app.osc_client.send_message(
                 f'/ui/{app.controller_id}/fader/{self.channel_id}/pan', pan
-            )
-        except Exception:
-            pass
-
-    def _send_arm_osc(self):
-        """Sendet Toggle-Kommando für Arm an Broker."""
-        if self._ignore_osc_send:
-            return
-        app = App.get_running_app()
-        if not app or not getattr(app, 'osc_client', None) or self.channel_id == 0:
-            return
-        try:
-            app.osc_client.send_message(
-                f'/ui/{app.controller_id}/fader/{self.channel_id}/arm', 1.0
             )
         except Exception:
             pass

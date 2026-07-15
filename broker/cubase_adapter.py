@@ -205,13 +205,6 @@ class CubaseAdapter:
                 self._fire_callback(0x06, track_index, float_val)
                 return
             
-            # Arm (7-bit) - CC 1-60 on Channel 12-13
-            if msg.channel in (12, 13) and 1 <= msg.control <= 60:
-                track_index = ((msg.channel - 12) * 60) + (msg.control - 1)
-                float_val = 1.0 if msg.value >= 64 else 0.0
-                self._fire_callback(0x09, track_index, float_val)
-                return
-            
             # VU Meter (7-bit) – CC 1-60 on Channel 10-11
             if msg.channel in (10, 11) and 1 <= msg.control <= 60:
                 track_index = ((msg.channel - 10) * 60) + (msg.control - 1)
@@ -287,15 +280,6 @@ class CubaseAdapter:
         if not (0 <= track_index < 120): return
         val_7 = 127 if value >= 0.5 else 0
         channel = 8 + (track_index // 60)
-        cc = 1 + (track_index % 60)
-        self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=val_7))
-        
-    def set_arm(self, track_index: int, value: float):
-        """Set arm for a track. value >= 0.5 = on, < 0.5 = off."""
-        if not self.outport: return
-        if not (0 <= track_index < 120): return
-        val_7 = 127 if value >= 0.5 else 0
-        channel = 12 + (track_index // 60)
         cc = 1 + (track_index % 60)
         self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=val_7))
         
