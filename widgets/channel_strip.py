@@ -96,9 +96,9 @@ class DAWChannelStrip(Widget):
         
         return {
             'pad': pad,
-            'fader_y': y, 'fader_h': fader_h,
-            'pan_y': y + fader_h, 'pan_h': pan_h,
-            'lbl_y': y + fader_h + pan_h, 'lbl_h': lbl_h,
+            'lbl_y': y, 'lbl_h': lbl_h,
+            'fader_y': y + lbl_h, 'fader_h': fader_h,
+            'pan_y': y + lbl_h + fader_h, 'pan_h': pan_h,
             'center_x': x + w / 2,
             'w': w, 'h': h, 'x': x, 'y': y
         }
@@ -154,10 +154,10 @@ class DAWChannelStrip(Widget):
             # --- 0. SEPARATOREN ---
             Color(0.2, 0.2, 0.2, 1)  # Dezentes Grau für Trennlinien
             margin = 15  # Linien gehen nicht über die volle Breite
-            # Linie zwischen Fader (unten) und Pan (Mitte)
+            # Linie zwischen Name (unten) und Fader (Mitte)
+            Line(points=[geo['x'] + margin, geo['fader_y'], geo['x'] + geo['w'] - margin, geo['fader_y']], width=1.0)
+            # Linie zwischen Fader (Mitte) und Pan (oben)
             Line(points=[geo['x'] + margin, geo['pan_y'], geo['x'] + geo['w'] - margin, geo['pan_y']], width=1.0)
-            # Linie zwischen Pan (Mitte) und Name (oben)
-            Line(points=[geo['x'] + margin, geo['lbl_y'], geo['x'] + geo['w'] - margin, geo['lbl_y']], width=1.0)
             
             # --- 1. SPURNAME ---
             Color(*self.c_text)
@@ -426,7 +426,7 @@ class DAWChannelStrip(Widget):
         geo = self._get_geometry()
         
         # --- LABEL AREA (global defeat gestures) ---
-        if touch.y >= geo['lbl_y']:
+        if touch.y < geo['fader_y']:
             touch.grab(self)
             touch.ud['active_control'] = 'label'
             
@@ -444,7 +444,7 @@ class DAWChannelStrip(Widget):
             return True
             
         # --- PAN AREA ---
-        if touch.y >= geo['pan_y'] and touch.y < geo['lbl_y']:
+        if touch.y >= geo['pan_y']:
             touch.grab(self)
             self.is_touched = True
             touch.ud['active_control'] = 'pan'
