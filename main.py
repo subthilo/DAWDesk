@@ -161,6 +161,7 @@ class DAWDeskApp(App):
         self.osc_client = None   # Wird gesetzt sobald Broker-IP bekannt
         self._broker_ip = None
         self.channel_strips = []
+        self._settings_long_press_event = None
         self._meter_buffer = {}  # {channel_id: float} – written by OSC thread, read by Clock
         # Flush meter buffer at 15fps (good balance between smooth display and CPU)
         Clock.schedule_interval(self._flush_meters, 1.0 / 15.0)
@@ -170,7 +171,8 @@ class DAWDeskApp(App):
         self.connection_status = f"◌ SEARCHING...  {self.controller_id}"
 
         # Dynamisches Hinzufügen von Kanalzügen beim Start
-        layout = self.root.ids.mixer_layout
+        main_screen = self.root.get_screen('main')
+        layout = main_screen.ids.mixer_layout
         for i in range(self.channels):
             channel_id = i + 1
             strip = DAWChannelStrip(
@@ -182,8 +184,27 @@ class DAWDeskApp(App):
                 pan_min=-100.0,
                 pan_max=100.0
             )
+            strip.bind(is_pan_touched=self._check_settings_gesture)
             self.channel_strips.append(strip)
             layout.add_widget(strip)
+
+    def _check_settings_gesture(self, *args):
+        if not self.channel_strips or len(self.channel_strips) < 2:
+            return
+        
+        first = self.channel_strips[0]
+        last = self.channel_strips[-1]
+        
+        if first.is_pan_touched and last.is_pan_touched:
+            if not self._settings_long_press_event:
+                self._settings_long_press_event = Clock.schedule_once(self._open_settings, 1.0)
+        else:
+            if self._settings_long_press_event:
+                self._settings_long_press_event.cancel()
+                self._settings_long_press_event = None
+                
+    def _open_settings(self, dt):
+        self.root.current = 'settings'
 
     from kivy.clock import mainthread
     @mainthread

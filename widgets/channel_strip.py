@@ -37,6 +37,7 @@ class DAWChannelStrip(Widget):
     is_touched = BooleanProperty(False)
     is_solo = BooleanProperty(False)
     is_muted = BooleanProperty(False)
+    is_pan_touched = BooleanProperty(False)
 
     # --- FADER PROPERTIES ---
     c_bg = ColorProperty((0.08, 0.12, 0.18, 1))
@@ -447,6 +448,7 @@ class DAWChannelStrip(Widget):
         if touch.y >= geo['pan_y']:
             touch.grab(self)
             self.is_touched = True
+            self.is_pan_touched = True
             touch.ud['active_control'] = 'pan'
             touch.ud['start_y'] = touch.y
             touch.ud['start_pan'] = self.pan
@@ -540,6 +542,10 @@ class DAWChannelStrip(Widget):
     def on_touch_up(self, touch):
         if touch.grab_current is self:
             ctrl = touch.ud.get('active_control')
+            
+            if ctrl == 'pan':
+                self.is_pan_touched = False
+                
             # Cancel any pending long-press
             if self._long_press_event:
                 self._long_press_event.cancel()

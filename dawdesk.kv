@@ -25,13 +25,44 @@ DAWDeskRoot:
             pos: self.pos
             size: self.size
 
-<DAWDeskRoot@BoxLayout>:
-    orientation: 'vertical'
+<DAWDeskRoot@ScreenManager>:
+    MainScreen:
+        name: 'main'
+    SettingsScreen:
+        name: 'settings'
 
-    # Hauptbereich: Mixer
-    MixerLayout:
-        id: mixer_layout
+<MainScreen@Screen>:
+    BoxLayout:
+        orientation: 'vertical'
+        
+        # Hauptbereich: Mixer
+        MixerLayout:
+            id: mixer_layout
+            
+        # Action Row (Nudge, Ebenen)
+        ActionRow:
+            id: action_row
 
-    # Action Row (Nudge, Ebenen)
-    ActionRow:
-        id: action_row
+<SettingsScreen@Screen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: 20
+        spacing: 20
+        canvas.before:
+            Color:
+                rgba: 0.1, 0.1, 0.1, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+                
+        Label:
+            text: 'Einstellungen (Coming Soon)'
+            font_size: 24
+            color: 1, 1, 1, 1
+            
+        Button:
+            text: 'Zurück zum Mixer'
+            font_size: 20
+            size_hint_y: None
+            height: 60
+            on_release: app.root.current = 'main'
