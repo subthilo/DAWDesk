@@ -164,8 +164,11 @@ class DAWDeskApp(App):
         self.channel_strips = []
         self._settings_long_press_event = None
         self._meter_buffer = {}  # {channel_id: float} – written by OSC thread, read by Clock
-        # Flush meter buffer at 60fps (for maximum smoothness)
+        self._osc_state_buffer = {}
+        self._transport_buffer = {}
+        # Flush buffers at 60fps (for maximum smoothness)
         Clock.schedule_interval(self._flush_meters, 1.0 / 60.0)
+        Clock.schedule_interval(self._flush_osc_state, 1.0 / 60.0)
 
     def on_start(self):
         # Anfangsstatus direkt mit der ID setzen
@@ -207,81 +210,93 @@ class DAWDeskApp(App):
     def _open_settings(self, dt):
         self.root.current = 'settings'
 
-    from kivy.clock import mainthread
-    @mainthread
     def update_fader_from_osc(self, channel_id: int, value: float):
-        if 1 <= channel_id <= len(self.channel_strips):
-            strip = self.channel_strips[channel_id - 1]
-            if strip.is_touched:
-                return  # Prevent MIDI feedback jitter
-            # Convert 0.0..1.0 back to dB (-60..+6)
-            db_val = value * (strip.db_max - strip.db_min) + strip.db_min
-            # Suppress near-identical updates (dedup)
-            if abs(strip.value - db_val) < 0.05:
-                return
-            strip._ignore_osc_send = True
-            strip.value = db_val
-            strip._ignore_osc_send = False
+        if channel_id not in self._osc_state_buffer: self._osc_state_buffer[channel_id] = {}
+        self._osc_state_buffer[channel_id]['volume'] = value
 
-    @mainthread
     def update_pan_from_osc(self, channel_id: int, value: float):
-        if 1 <= channel_id <= len(self.channel_strips):
-            strip = self.channel_strips[channel_id - 1]
-            if strip.is_touched:
-                return  # Prevent MIDI feedback jitter
-                
-            if value < -0.5:
-                pan_val = -999.0
-            else:
-                # Convert 0.0..1.0 back to pan (-1.0..1.0)
-                pan_val = (value * 2.0) - 1.0
-                
-            # Suppress near-identical updates (dedup)
-            if abs(strip.pan - pan_val) < 0.01:
-                return
-            strip._ignore_osc_send = True
-            strip.pan = pan_val
-            strip._ignore_osc_send = False
+        if channel_id not in self._osc_state_buffer: self._osc_state_buffer[channel_id] = {}
+        self._osc_state_buffer[channel_id]['pan'] = value
 
-    @mainthread
     def update_name_from_osc(self, channel_id: int, name: str):
-        if 1 <= channel_id <= len(self.channel_strips):
-            strip = self.channel_strips[channel_id - 1]
-            strip.track_name = name or f"Ch {channel_id}"
+        if channel_id not in self._osc_state_buffer: self._osc_state_buffer[channel_id] = {}
+        self._osc_state_buffer[channel_id]['name'] = name
 
-    @mainthread
     def update_color_from_osc(self, channel_id: int, r: float, g: float, b: float):
-        if 1 <= channel_id <= len(self.channel_strips):
-            strip = self.channel_strips[channel_id - 1]
-            strip.track_color = (r, g, b, 1.0)
+        if channel_id not in self._osc_state_buffer: self._osc_state_buffer[channel_id] = {}
+        self._osc_state_buffer[channel_id]['color'] = (r, g, b)
 
-    @mainthread
     def update_solo_from_osc(self, channel_id: int, value: float):
-        if 1 <= channel_id <= len(self.channel_strips):
-            strip = self.channel_strips[channel_id - 1]
-            strip.is_solo = (value >= 0.5)
+        if channel_id not in self._osc_state_buffer: self._osc_state_buffer[channel_id] = {}
+        self._osc_state_buffer[channel_id]['solo'] = value
 
-    @mainthread
     def update_mute_from_osc(self, channel_id: int, value: float):
-        if 1 <= channel_id <= len(self.channel_strips):
-            strip = self.channel_strips[channel_id - 1]
-            strip.is_muted = (value >= 0.5)
+        if channel_id not in self._osc_state_buffer: self._osc_state_buffer[channel_id] = {}
+        self._osc_state_buffer[channel_id]['mute'] = value
 
     def update_meter_from_osc(self, channel_id: int, value: float):
         """Called from OSC thread – buffer value and timestamp."""
         import time
         self._meter_buffer[channel_id] = (value, time.time())
 
-    @mainthread
     def update_transport_from_osc(self, cmd: str, val: float):
-        main_screen = self.root.get_screen('main')
-        action_row = None
-        for child in main_screen.walk():
-            if type(child).__name__ == 'ActionRow':
-                action_row = child
-                break
-        if action_row:
-            action_row.update_transport_state(cmd, val)
+        self._transport_buffer[cmd] = val
+
+    def _flush_osc_state(self, dt):
+        if self._transport_buffer:
+            main_screen = self.root.get_screen('main')
+            action_row = None
+            for child in main_screen.walk():
+                if type(child).__name__ == 'ActionRow':
+                    action_row = child
+                    break
+            if action_row:
+                for cmd, val in self._transport_buffer.items():
+                    action_row.update_transport_state(cmd, val)
+            self._transport_buffer.clear()
+
+        if not self._osc_state_buffer:
+            return
+            
+        snapshot, self._osc_state_buffer = self._osc_state_buffer, {}
+        
+        for ch_id, state in snapshot.items():
+            if not (1 <= ch_id <= len(self.channel_strips)):
+                continue
+            strip = self.channel_strips[ch_id - 1]
+            
+            if 'name' in state:
+                strip.track_name = state['name'] or f"Ch {ch_id}"
+                
+            if 'color' in state:
+                r, g, b = state['color']
+                strip.track_color = (r, g, b, 1.0)
+                
+            if 'solo' in state:
+                strip.is_solo = (state['solo'] >= 0.5)
+                
+            if 'mute' in state:
+                strip.is_muted = (state['mute'] >= 0.5)
+                
+            if not strip.is_touched:
+                if 'volume' in state:
+                    value = state['volume']
+                    db_val = value * (strip.db_max - strip.db_min) + strip.db_min
+                    if abs(strip.value - db_val) >= 0.05:
+                        strip._ignore_osc_send = True
+                        strip.value = db_val
+                        strip._ignore_osc_send = False
+                        
+                if 'pan' in state:
+                    value = state['pan']
+                    if value < -0.5:
+                        pan_val = -999.0
+                    else:
+                        pan_val = (value * 2.0) - 1.0
+                    if abs(strip.pan - pan_val) >= 0.01:
+                        strip._ignore_osc_send = True
+                        strip.pan = pan_val
+                        strip._ignore_osc_send = False
 
     def _flush_meters(self, dt):
         """Called at 15fps by Clock. Applies all buffered meter values. Decays only if timed out."""
