@@ -144,16 +144,17 @@ class CubaseAdapter:
 
         if msg.type == 'control_change':
             
-            # Handle DAWDesk CC-ASCII Stream (Channel 15 -> msg.channel == 14)
-            if msg.channel == 14:
+            # Handle DAWDesk CC-ASCII Stream (Channels 15-16 -> msg.channel in (14, 15))
+            if msg.channel in (14, 15):
+                track_offset = (msg.channel - 14) * 120
                 if msg.control == 115:   # Start Title
                     self._str_type = 0
-                    self._str_track = msg.value
+                    self._str_track = msg.value + track_offset
                     self._str_buf = []
                     return
                 elif msg.control == 116: # Start Value
                     self._str_type = 1
-                    self._str_track = msg.value
+                    self._str_track = msg.value + track_offset
                     self._str_buf = []
                     return
                 elif msg.control == 119: # Start Debug
@@ -178,7 +179,7 @@ class CubaseAdapter:
                     return
                 # COLOR STREAM (CC 120-123)
                 elif msg.control == 120: # Color Sync Start
-                    self._color_track = msg.value
+                    self._color_track = msg.value + track_offset
                     self._color_rgb = [0, 0, 0]
                     return
                 elif msg.control == 121: # Red

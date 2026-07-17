@@ -158,11 +158,14 @@ for (var i = 0; i < NUM_CHANNELS; ++i) {
             if (str === lastTitle[index]) return; // No change → skip
             lastTitle[index] = str;
             var maxLen = Math.min(str.length, 20);
-            midiOutput.sendMidi(activeDevice, [0xBE, 115, index]); // Start Title Transfer
+            var baseCh = 14 + Math.floor(index / 120);
+            var status = 0xB0 + baseCh;
+            var localIdx = index % 120;
+            midiOutput.sendMidi(activeDevice, [status, 115, localIdx]); // Start Title Transfer
             for (var j = 0; j < maxLen; j++) {
-                midiOutput.sendMidi(activeDevice, [0xBE, 117, str.charCodeAt(j) & 0x7F]); // Char
+                midiOutput.sendMidi(activeDevice, [status, 117, str.charCodeAt(j) & 0x7F]); // Char
             }
-            midiOutput.sendMidi(activeDevice, [0xBE, 118, 0]); // End Transfer
+            midiOutput.sendMidi(activeDevice, [status, 118, 0]); // End Transfer
         };
         
         // Send Track Color – always forward, colors change rarely so no cache needed.
@@ -170,10 +173,13 @@ for (var i = 0; i < NUM_CHANNELS; ++i) {
             var ri = Math.round(r * 127);
             var gi = Math.round(g * 127);
             var bi = Math.round(b * 127);
-            midiOutput.sendMidi(activeDevice, [0xBE, 120, index]);
-            midiOutput.sendMidi(activeDevice, [0xBE, 121, ri]);
-            midiOutput.sendMidi(activeDevice, [0xBE, 122, gi]);
-            midiOutput.sendMidi(activeDevice, [0xBE, 123, bi]);
+            var baseCh = 14 + Math.floor(index / 120);
+            var status = 0xB0 + baseCh;
+            var localIdx = index % 120;
+            midiOutput.sendMidi(activeDevice, [status, 120, localIdx]);
+            midiOutput.sendMidi(activeDevice, [status, 121, ri]);
+            midiOutput.sendMidi(activeDevice, [status, 122, gi]);
+            midiOutput.sendMidi(activeDevice, [status, 123, bi]);
         };
     })(i);
 }
