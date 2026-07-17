@@ -248,44 +248,60 @@ async def run():
             _sent_state_cache[key] = val
             _osc_queue.append((send_func, cid, local_ch, cmd, val))
 
+    import queue
+    _midi_queue = queue.Queue()
     _received_cubase_events = False
 
     def on_cubase_event(cmd: int, track: int, val):
+        """Called from the mido background thread. Push to thread-safe queue."""
+        _midi_queue.put((cmd, track, val))
+
+    def _process_midi_queue(dt):
+        """Process MIDI events on the Kivy Main Thread to ensure thread-safety for dictionaries."""
         nonlocal _received_cubase_events
-        _received_cubase_events = True
         
-        if cmd == 0x08:
-            state.transport_state[track] = float(val)
-            for cid in state.registry.get_all().keys():
-                _send_if_changed(cid, track, cmd, float(val), send_to_rpi_transport)
-            return
-
-        # Convert relative physical fader (0-59) to absolute track index
-        track = track + (state.cubase_bank_index * 60)
-
-        # 1. Cache the value (skip meter – ephemeral, high-frequency)
-        if cmd == 0x03:
-            state.update_track_name(track, val)
-        elif cmd == 0x04:
-            state.update_track_color(track, val)
-        elif cmd == 0x07:
-            # Buffer meter – will be flushed at 15fps
-            _meter_buffer[track] = float(val)
-            return
-        else:
-            state.update_track_value(track, cmd, float(val))
-        
-        # 2. Forward to RPi if it's currently mapped (immediate for non-meter)
-        controller_id, channel_id = state.get_controller_and_local_channel(track)
-        if not controller_id:
-            return
+        while not _midi_queue.empty():
+            try:
+                cmd, track, val = _midi_queue.get_nowait()
+            except queue.Empty:
+                break
+                
+            _received_cubase_events = True
             
-        if cmd == 0x03:
-            _send_if_changed(controller_id, channel_id, cmd, val, send_to_rpi_string)
-        elif cmd == 0x04:
-            _send_if_changed(controller_id, channel_id, cmd, val, send_to_rpi_color)
-        else:
-            _send_if_changed(controller_id, channel_id, cmd, float(val), send_to_rpi)
+            if cmd == 0x08:
+                state.transport_state[track] = float(val)
+                for cid in state.registry.get_all().keys():
+                    _send_if_changed(cid, track, cmd, float(val), send_to_rpi_transport)
+                continue
+
+            # Convert relative physical fader (0-59) to absolute track index
+            track = track + (state.cubase_bank_index * 60)
+
+            # 1. Cache the value (skip meter – ephemeral, high-frequency)
+            if cmd == 0x03:
+                state.update_track_name(track, val)
+            elif cmd == 0x04:
+                state.update_track_color(track, val)
+            elif cmd == 0x07:
+                # Buffer meter – will be flushed at 15fps
+                _meter_buffer[track] = float(val)
+                continue
+            else:
+                state.update_track_value(track, cmd, float(val))
+            
+            # 2. Forward to RPi if it's currently mapped (immediate for non-meter)
+            controller_id, channel_id = state.get_controller_and_local_channel(track)
+            if not controller_id:
+                continue
+                
+            if cmd == 0x03:
+                _send_if_changed(controller_id, channel_id, cmd, val, send_to_rpi_string)
+            elif cmd == 0x04:
+                _send_if_changed(controller_id, channel_id, cmd, val, send_to_rpi_color)
+            else:
+                _send_if_changed(controller_id, channel_id, cmd, float(val), send_to_rpi)
+
+    Clock.schedule_interval(_process_midi_queue, 0) # Run every frame
         
     _push_task = None
     
