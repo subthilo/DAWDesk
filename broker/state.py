@@ -64,7 +64,7 @@ class BrokerState:
                 # We found the controller, add its local offset
                 # local_channel is 1-indexed (1, 2, 3...)
                 # absolute_index is 0-indexed (0, 1, 2...)
-                bank_base = self.cubase_bank_index * 60
+                bank_base = self.cubase_bank_index * 240
                 return absolute_index + (local_channel - 1) + self.bank_offset + bank_base
             
             # Add the number of channels of the previous controller
@@ -81,7 +81,7 @@ class BrokerState:
         if daw_track_index < 0:
             return None, -1
             
-        bank_base = self.cubase_bank_index * 60
+        bank_base = self.cubase_bank_index * 240
         target_index = daw_track_index - self.bank_offset - bank_base
         if target_index < 0:
             return None, -1

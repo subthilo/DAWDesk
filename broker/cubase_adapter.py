@@ -192,6 +192,8 @@ class CubaseAdapter:
                     r = self._color_rgb[0] / 127.0
                     g = self._color_rgb[1] / 127.0
                     b = self._color_rgb[2] / 127.0
+                    if r == 0.0 and g == 0.0 and b == 0.0:
+                        r, g, b = 0.55, 0.62, 0.68
                     if self._callback:
                         self._callback(0x04, self._color_track, (r, g, b))
                     return
