@@ -76,14 +76,23 @@ def create_dispatcher(state: BrokerState, daw_adapter: CubaseAdapter) -> Dispatc
                     if displayable_channels == 0:
                         displayable_channels = 12 # Fallback
 
-                    # Determine how many real tracks are in the CURRENT Cubase bank
-                    real_tracks = [t_idx for t_idx in state.track_values.keys() if state.get_track_name(t_idx).strip() != '']
+                    # Filter real_tracks to only include those in the current 240-track bank
+                    current_bank_start = state.cubase_bank_index * 240
+                    current_bank_end = current_bank_start + 240
+                    
+                    real_tracks = [
+                        t_idx for t_idx in state.track_values.keys() 
+                        if current_bank_start <= t_idx < current_bank_end 
+                        and state.get_track_name(t_idx).strip() != ''
+                    ]
+                    
                     if not real_tracks:
-                        # Broker just restarted and Cubase hasn't sent track names yet.
+                        # Broker just restarted or bank just shifted and Cubase hasn't sent track names yet.
                         # Assume a full bank so nudging is not completely locked.
                         current_bank_real_tracks = 240
                     else:
-                        current_bank_real_tracks = max(real_tracks) + 1
+                        # Convert absolute max index back to a relative count (1 to 240)
+                        current_bank_real_tracks = max(real_tracks) - current_bank_start + 1
 
                     max_offset = max(0, current_bank_real_tracks - displayable_channels)
                     new_offset = state.bank_offset + steps

@@ -230,7 +230,10 @@ class CubaseAdapter:
 
     def set_volume(self, track_index: int, volume: float):
         if not self.outport: return
+<<<<<<< HEAD
         if not (0 <= track_index < 240): return
+=======
+>>>>>>> origin/main
         
         # Echo suppression: record what we sent and when
         key = (track_index, 0x01)
@@ -241,8 +244,9 @@ class CubaseAdapter:
         msb = (val_14 >> 7) & 0x7F
         lsb = val_14 & 0x7F
         
-        channel = track_index // 30
-        cc_msb = _track_to_msb_cc(track_index % 30)
+        relative_track = track_index % 60
+        channel = relative_track // 30
+        cc_msb = _track_to_msb_cc(relative_track % 30)
         cc_lsb = cc_msb + 32
         
         self.outport.send(mido.Message('control_change', channel=channel, control=cc_msb, value=msb))
@@ -250,7 +254,10 @@ class CubaseAdapter:
 
     def set_pan(self, track_index: int, pan: float):
         if not self.outport: return
+<<<<<<< HEAD
         if not (0 <= track_index < 240): return
+=======
+>>>>>>> origin/main
         
         # Echo suppression: record what we sent and when
         key = (track_index, 0x02)
@@ -258,28 +265,50 @@ class CubaseAdapter:
         self._last_sent_time[key] = time.monotonic()
         
         val_7 = int(max(0.0, min(1.0, pan)) * 127)
+<<<<<<< HEAD
         channel = 8 + (track_index // 120)
         cc = 1 + (track_index % 120)
+=======
+        relative_track = track_index % 60
+        channel = 4 + (relative_track // 60)
+        cc = 1 + (relative_track % 60)
+>>>>>>> origin/main
         
         self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=val_7))
 
     def set_solo(self, track_index: int, value: float):
         """Set solo for a track. value >= 0.5 = on, < 0.5 = off."""
         if not self.outport: return
+<<<<<<< HEAD
         if not (0 <= track_index < 240): return
         vel = 127 if value >= 0.5 else 0
         channel = 8 + (track_index // 120)
         note = track_index % 120
         self.outport.send(mido.Message('note_on', channel=channel, note=note, velocity=vel))
+=======
+        val_7 = 127 if value >= 0.5 else 0
+        relative_track = track_index % 60
+        channel = 6 + (relative_track // 60)
+        cc = 1 + (relative_track % 60)
+        self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=val_7))
+>>>>>>> origin/main
 
     def set_mute(self, track_index: int, value: float):
         """Set mute for a track. value >= 0.5 = on, < 0.5 = off."""
         if not self.outport: return
+<<<<<<< HEAD
         if not (0 <= track_index < 240): return
         vel = 127 if value >= 0.5 else 0
         channel = 10 + (track_index // 120)
         note = track_index % 120
         self.outport.send(mido.Message('note_on', channel=channel, note=note, velocity=vel))
+=======
+        val_7 = 127 if value >= 0.5 else 0
+        relative_track = track_index % 60
+        channel = 8 + (relative_track // 60)
+        cc = 1 + (relative_track % 60)
+        self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=val_7))
+>>>>>>> origin/main
         
     def set_transport(self, cmd_idx: int, value: float):
         """Send transport command. cmd_idx: 0=Play, 1=Rec, 2=Loop"""
