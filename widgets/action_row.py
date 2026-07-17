@@ -19,14 +19,22 @@ class AutoRepeatButton(Button):
         self.font_size = 20
         self.bold = True
         
-        # Bind native Kivy events for touch
-        self.bind(on_press=self.start_action)
-        self.bind(on_release=self.stop_action)
+        # Bind to 'state' instead of on_press/on_release to robustly handle finger slides
+        self.bind(state=self._on_state_change)
+
+    def _on_state_change(self, instance, value):
+        if value == 'down':
+            self.start_action()
+        else:
+            self.stop_action()
 
     def start_action(self, *args):
         self.background_color = (0.3, 0.4, 0.5, 1)
         if self.action_callback:
             self.action_callback(self.steps)
+        # Prevent multiple timers if somehow triggered twice
+        if self._repeat_event:
+            self._repeat_event.cancel()
         self._repeat_event = Clock.schedule_once(self.start_repeat, 0.4)
 
     def start_repeat(self, dt):
