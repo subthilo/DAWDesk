@@ -260,6 +260,9 @@ async def run():
                 _send_if_changed(cid, track, cmd, float(val), send_to_rpi_transport)
             return
 
+        # Convert relative physical fader (0-59) to absolute track index
+        track = track + (state.cubase_bank_index * 60)
+
         # 1. Cache the value (skip meter – ephemeral, high-frequency)
         if cmd == 0x03:
             state.update_track_name(track, val)
