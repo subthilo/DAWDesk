@@ -1,0 +1,80 @@
+import re
+
+with open('/Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/main.py', 'r') as f:
+    content = f.read()
+
+# We want to re-add on_routing_changed and fix request_cubase_state.
+# Look for where cubase_adapter.set_callback(on_cubase_event) is called.
+
+match = re.search(r'    # No manual routing pushes needed - Cubase will push live updates on shift\n    cubase_adapter.set_callback\(on_cubase_event\)', content)
+
+if match:
+    new_code = """    _push_task = None
+    
+    def on_routing_changed():
+        nonlocal _push_task
+        if _push_task and not _push_task.done():
+            _push_task.cancel()
+            
+        async def _push():
+            try:
+                for cmd_idx, val in state.transport_state.items():
+                    for cid in state.registry.get_all().keys():
+                        _send_if_changed(cid, cmd_idx, 0x08, val, send_to_rpi_transport)
+
+                order = broker_config.get_order()
+                all_controllers = registry.get_all()
+                for cid in order:
+                    if cid in all_controllers:
+                        channels = all_controllers[cid].channels
+                        for local_ch in range(1, channels + 1):
+                            daw_index = state.get_daw_track_index(cid, local_ch)
+                            if daw_index >= 0:
+                                vol = state.get_track_value(daw_index, 0x01)
+                                pan = state.get_track_value(daw_index, 0x02)
+                                solo = state.get_track_value(daw_index, 0x05)
+                                mute = state.get_track_value(daw_index, 0x06)
+                                name = state.get_track_name(daw_index)
+                                color = state.get_track_color(daw_index)
+                                
+                                _send_if_changed(cid, local_ch, 0x01, vol, send_to_rpi)
+                                _send_if_changed(cid, local_ch, 0x02, pan, send_to_rpi)
+                                _send_if_changed(cid, local_ch, 0x05, solo, send_to_rpi)
+                                _send_if_changed(cid, local_ch, 0x06, mute, send_to_rpi)
+                                _send_if_changed(cid, local_ch, 0x03, name, send_to_rpi_string)
+                                _send_if_changed(cid, local_ch, 0x04, color, send_to_rpi_color)
+            except asyncio.CancelledError:
+                pass
+                
+        _push_task = asyncio.create_task(_push())
+
+    state.on_routing_changed = on_routing_changed
+    cubase_adapter.set_callback(on_cubase_event)"""
+    content = content[:match.start()] + new_code + content[match.end():]
+
+# Now fix request_cubase_state
+match_sync = re.search(r'    async def request_cubase_state\(\):\n(?:.*?\n){1,20}        finally:\n            _sync_in_progress = False', content, re.MULTILINE | re.DOTALL)
+if match_sync:
+    new_sync = """    async def request_cubase_state():
+        nonlocal _sync_in_progress
+        if _sync_in_progress: return
+        _sync_in_progress = True
+        try:
+            _log("Requesting full state sync from Cubase (400 tracks)...")
+            cubase_adapter.send_nudge(-1) # Force to bank 0
+            await asyncio.sleep(0.1)
+            
+            cubase_adapter.send_nudge(1)
+            await asyncio.sleep(0.4)
+            cubase_adapter.send_nudge(-1)
+            await asyncio.sleep(0.4)
+            
+            on_routing_changed()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            _sync_in_progress = False"""
+    content = content[:match_sync.start()] + new_sync + content[match_sync.end():]
+
+with open('/Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/main.py', 'w') as f:
+    f.write(content)

@@ -212,15 +212,15 @@ class CubaseAdapter:
                 self._fire_callback(0x07, track_index, float_val)
                 return
             
-            # Volume MSB – CC 1-5, 7-31 on Channel 0-1 (skip CC 6)
-            if msg.channel in (0, 1) and ((1 <= msg.control <= 5) or (7 <= msg.control <= 31)):
+            # Volume MSB – CC 1-5, 7-31 on Channel 0-7 (skip CC 6)
+            if msg.channel in range(8) and ((1 <= msg.control <= 5) or (7 <= msg.control <= 31)):
                 track_offset = _msb_cc_to_track(msg.control)
                 track_index = (msg.channel * 30) + track_offset
                 self._msb_cache[track_index] = msg.value
                 return
             
-            # Volume LSB – CC 33-37, 39-63 on Channel 0-1 (skip CC 38)
-            if msg.channel in (0, 1) and ((33 <= msg.control <= 37) or (39 <= msg.control <= 63)):
+            # Volume LSB – CC 33-37, 39-63 on Channel 0-7 (skip CC 38)
+            if msg.channel in range(8) and ((33 <= msg.control <= 37) or (39 <= msg.control <= 63)):
                 msb_cc = msg.control - 32
                 track_offset = _msb_cc_to_track(msb_cc)
                 track_index = (msg.channel * 30) + track_offset
@@ -243,9 +243,8 @@ class CubaseAdapter:
         msb = (val_14 >> 7) & 0x7F
         lsb = val_14 & 0x7F
         
-        relative_track = track_index % 60
-        channel = relative_track // 30
-        cc_msb = _track_to_msb_cc(relative_track % 30)
+        channel = track_index // 30
+        cc_msb = _track_to_msb_cc(track_index % 30)
         cc_lsb = cc_msb + 32
         
         self.outport.send(mido.Message('control_change', channel=channel, control=cc_msb, value=msb))
