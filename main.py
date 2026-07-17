@@ -275,7 +275,11 @@ class DAWDeskApp(App):
     @mainthread
     def update_transport_from_osc(self, cmd: str, val: float):
         main_screen = self.root.get_screen('main')
-        action_row = main_screen.ids.get('action_row')
+        action_row = None
+        for child in main_screen.walk():
+            if type(child).__name__ == 'ActionRow':
+                action_row = child
+                break
         if action_row:
             action_row.update_transport_state(cmd, val)
 

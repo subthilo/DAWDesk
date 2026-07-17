@@ -1,0 +1,1367 @@
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/docs/ProjectSpecifications.md. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -1,41 +1,150 @@
+-# DAWDesk - Project Specifications
+-
+-## 1. Übersicht
+-**Projekt:** DAWDesk
+-**Zielplattform:** Raspberry Pi 4/5 mit offiziellem 7" Touch-Display (800x480).
+-**Technologie:** Python 3, Kivy 2.3.1 (EGLFS/DRM Modus).
+-
+-## 2. Visuelles Konzept & Design
+-*   **Farbschema:** Dark Mode. Tiefe Blau/Grau-Töne (`#050812` bis `#141824`). Akzente in hellem Cyan (`#00E5E5`).
+-*   **UI-Paradigma:** Skeuomorphistisch angehaucht, aber modern und flach. Keine 3D-Schatten, stattdessen klare Linien und Transparenzen.
+-*   **Kanäle:** Bis zu 12 Kanäle gleichzeitig sichtbar (skaliert automatisch, wenn `NUM_CHANNELS` in `main.py` angepasst wird).
+-
+-## 3. Kanalzug (Channel Strip)
+-Ein Kanalzug besteht visuell aus folgenden Elementen, wird technisch aber als ein einzelnes Kivy-Widget (`DAWChannelStrip`) gerendert.
+-
+-### 3.1 Spurbezeichnung
+-*   Text-Label zentriert im oberen Drittel.
+-*   Farbe: Weiß/Hellblau.
+-
+-### 3.2 Pan-Regler (Panorama)
+-*   Form: Ein nach unten offener Kreisring (60 Grad Öffnung unten).
+-*   Darstellung: Ein grauer Hintergrund-Ring, auf dem ein Cyan-farbener "Füll"-Bogen den aktuellen Wert anzeigt.
+-*   Wertebereich: L100 (links) bis R100 (rechts). Mitte ist "C".
+-*   Bedienung: Touch und vertikaler oder horizontaler Swipe zur Wertänderung.
+-
+-### 3.3 Fader (Lautstärke)
+-*   **Skala:** -60 dB (unten) bis +6 dB (oben).
+-*   **Kurve:** Logarithmische Darstellung (quadratische Funktion für die Y-Position), um im fein steuerbaren Bereich (um 0 dB) mehr Pixelauflösung zu haben.
+-*   **Hintergrund:** Ein dunkler Schlitz (`c_track`).
+-*   **Pegelanzeige:** Ein Cyan-Balken, der innerhalb des Schlitzes von unten nach oben wächst.
+-*   **Fader-Kappe:** C-förmig (links geschlossen, rechts offen). Gezeichnet mit Kivy `Line` (`cap='none'`) und expliziten `Ellipse`-Abschlüssen für sauberes Rendering.
+-*   **Ticks:** Horizontale Striche. Ein halbtransparenter Streifen läuft unter den Ticks, aber *über* der Faderkappe, sodass diese elegant hindurchgleitet.
+-*   **Zahlen:** Dezibel-Werte auf dem transparenten Streifen links neben den Ticks.
+-
+-## 4. Performance-Vorgaben
+-*   **Ziel:** Stabile 60 FPS bei Multitouch auf 12 Kanälen gleichzeitig.
+-*   **Strategie:** Vermeidung von Objektallokationen (Garbage Collection) während Touch-Events. Text-Caching in Texturen. Direct-Canvas-Drawing (Single-Widget).
+-
+-## 5. Deployment
+-*   Das Projekt muss ohne Desktop-Umgebung (X11/Wayland) direkt in den Framebuffer booten können (`systemd` Service).
+-*   Automatisierter Deployment-Prozess via Python-Skript von einem Entwicklungsrechner.
++Architektur-Spezifikation: Custom Multi-DAW Controller (Cubase & Ableton Live)
++
++1. Systemübersicht & Design-Philosophie
++
++Dieses Projekt implementiert einen hochauflösenden, modularen DAW-Hardware-Controller (Touchscreen) mit Fokus auf Mischen, EQ, Routing und 60-fps-Metering.
++Das Kernkonzept basiert auf dem Adapter-Muster (Decoupling) und strenger Modularität. Die grafische Oberfläche (GUI) und die DAWs kommunizieren niemals direkt miteinander.
++
++Das System besteht aus drei isolierten Layern:
++
++Layer 1: Frontend (Kivy): Dumme, performante Touch-GUI. Spricht ausschließlich ein standardisiertes, internes OSC-Protokoll.
++
++Layer 2: Backend (Python-Broker): Die zentrale Intelligenz (State Management, dynamisches Banking). Nutzt das Strategy-Pattern, um Daten für die jeweilige Ziel-DAW zu übersetzen.
++
++Layer 3: DAW-Endpoints: Dumme Dolmetscher in der jeweiligen Audiosoftware (JavaScript für Cubase, Max for Live für Ableton).
++
++2. Detaillierte Modul-Spezifikationen
++
++2.1 Frontend (Kivy)
++
++Technologie: Python 3 / Kivy (Framework für NUI).
++
++Architektur-Regel: Das UI kennt keine DAW-Spezifika (kein MIDI, kein "Cubase", kein "Ableton"). Es sendet und empfängt nur normierte Floats und Strings.
++
++Implementierungs-Details:
++
++Networking: Asynchroner UDP/OSC-Server und -Client (via python-osc). Darf die Kivy-Main-Loop (60 Hz) nicht blockieren (Nutzung von asyncio in Kombination mit Kivys async-Support).
++
++Metering (Performance-Kritisch): Für VU-Meter dürfen keine Standard-Kivy-Widgets (wie ProgressBar) verwendet werden. Pegel MÜSSEN direkt über Kivy Canvas-Instruktionen (Rectangle, Color) gezeichnet werden. Updates erfolgen per OSC-Callback, der lediglich size und pos auf der GPU aktualisiert.
++
++Lange Texte: Kanalnamen werden via Auto-Scaling (Schriftgröße) oder Animation (Marquee-Laufschrift) dargestellt, falls sie die Fader-Breite überschreiten.
++
++2.2 Backend (Python-Broker)
++
++Technologie: Python (Headless), mido / rtmidi (für SysEx), python-osc (für Netzwerk).
++
++Rolle: Zentrale Vermittlungsstelle, Filter, Status-Halter (State Machine).
++
++Implementierungs-Details (Das Schiebefenster / Sliding Window):
++
++Der Broker empfängt von der aktiven DAW stets einen gigantischen Datenblock (z. B. 64 oder 128 Kanäle).
++
++Er hält einen internen Status current_bank_offset (z. B. 0 für GUI-Kanäle 1-8).
++
++Dynamisches Banking: Wechselt der User die Bank in Kivy, ändert der Broker nur den current_bank_offset und leitet ab sofort die Tracks 9-16 an Kivy weiter. An die DAW wird kein Bank-Befehl gesendet, bis das Fenster der 64 Tracks überschritten wird.
++
++Design-Pattern (Strategy):
++
++Der Broker implementiert eine Basisklasse DAWAdapter.
++
++Davon erben CubaseAdapter und AbletonAdapter.
++
++Je nach Nutzer-Auswahl instanziiert der Broker die passende Klasse.
++
++2.3 DAW-Integration A: Cubase 12+ (MIDI Remote API)
++
++Technologie: JavaScript (ES6, Cubase MIDI Remote API), Virtueller MIDI-Port (loopMIDI/IAC).
++
++Protokoll: SysEx (System Exclusive) für 14-Bit-Auflösung ohne Kanal-Limits. Kein Standard-CC, kein Pitchbend, kein Mackie Control.
++
++Implementierungs-Details:
++
++Initialisierung: Erzeugt eine oversized MixerBankZone (64 Kanäle hardcodiert).
++
++Feedback (DAW -> Broker): Abonniert mOnTitleChange, mOnColorChange, mOnProcessValueChange (Pegel).
++
++Farb-Konvertierung: Cubase liefert Floats (0.0 - 1.0). JS skaliert auf 7-Bit (0-127) für den SysEx-Transport. Der Broker rechnet dies für Kivy wieder auf Floats oder Hex-Strings um.
++
++Werte-Parsing (Broker -> DAW): Das JS-Skript liest SysEx, extrahiert MSB/LSB und berechnet den DAW-Float: (MSB << 7) + LSB / 16383.
++
++2.4 DAW-Integration B: Ableton Live 11+ (Max for Live)
++
++Technologie: Max for Live (M4L), Live Object Model (LOM), OSC (UDP).
++
++Protokoll: Direkte OSC-Netzwerk-Kommunikation. Kein MIDI-Routing nötig!
++
++Implementierungs-Details:
++
++Device-Setup: Ein unsichtbares M4L-Device liegt auf dem Master-Track. Es enthält udpreceive (Port X) und udpsend (Port Y).
++
++Steuerung (Broker -> DAW): Das M4L-Device parst eingehende OSC-Strings (z. B. /live/track/5/volume 0.75) und wandelt sie in LOM-Befehle um (path live_set tracks 4, set value 0.75). Hinweis: LOM nutzt oft 0-basierte Indizes.
++
++Feedback (DAW -> Broker): M4L nutzt live.observer, um Änderungen an Namen, Farben und Werten zu überwachen und als OSC an den Broker zu pushen.
++
++Echtzeit-Metering (60 fps): Abletons API-Metering ist zu langsam. M4L nutzt stattdessen plugout~ oder direkt das meter~ Audio-Objekt, getaktet mit einem metro Objekt (z. B. alle 16ms) für direkte, hochauflösende Peak-Werte via UDP an den Broker.
++
++3. Protokoll-Spezifikationen & Datenstrukturen
++
++3.1 Interne OSC-Pfade (Kivy <-> Broker)
++
++Dies ist die einheitliche Sprache des Systems. Beide DAWs werden vom Broker auf dieses Format genormt.
++
++/ui/fader/{id}/volume (Float 0.0 - 1.0)
++
++/ui/fader/{id}/pan (Float 0.0 - 1.0)
++
++/ui/display/{id}/name (String, unbegrenzte Länge)
++
++/ui/display/{id}/color (String "#RRGGBB" oder 3 Floats)
++
++/ui/meter/{id}/level (Float 0.0 - 1.0)
++
++/ui/bank/next bzw. /ui/bank/prev (Trigger)
++
++3.2 Broker <-> Cubase (SysEx-Struktur)
++
++Da MIDI-Bytes maximal 0x7F (127) fassen können, nutzen wir folgendes proprietäres 7-Byte Format für Werteänderungen:
++
++F0 (SysEx Start)
++
++7D (Dummy Manufacturer ID für Non-Commercial Education/DIY)
++
++[Command ID] (z. B. 01 = Volume, 02 = Pan, 03 = Color, 04 = Name-Char)
++
++[Track Index] (0x00 bis 0x3F für Kanal 1-64)
++
++[MSB] (Most Significant Byte des 14-Bit Werts)
++
++[LSB] (Least Significant Byte des 14-Bit Werts)
++
++F7 (SysEx End)
++
++Hinweis zu Namen in Cubase: Strings müssen in der Cubase API in ASCII-Byte-Arrays zerlegt, auf mehrere SysEx-Pakete verteilt und im Broker wieder zu Strings zusammengesetzt werden (Chunking).
++
++3.3 Broker <-> Ableton (OSC-Struktur)
++
++Direkte Übersetzung, da Ableton/M4L native Strings und Floats versteht.
++
++Broker sendet: /live/track/index/volume [Float]
++
++Ableton sendet: /live/track/index/name [String]
++
++Ableton sendet: /live/track/index/meter [Float]
++
++4. Absolute Regeln für KI-gestützte Code-Generierung
++
++Wenn Code generiert wird (in Cursor, Windsurf, Antigravity etc.), MÜSSEN folgende Regeln befolgt werden, da das System sonst kollabiert:
++
++Strikte Isolierung (Single Responsibility): Ein generiertes Modul für Kivy darf niemals mido oder Ableton-Pfade enthalten. Der Broker ist der einzige Ort, der Protokolle übersetzt.
++
++Kein Blocking (Async-First): Im Broker MUSS asyncio verwendet werden (z.B. asyncio.DatagramProtocol für OSC). In der Kivy-GUI MÜSSEN alle Updates im Kivy-Main-Thread via @mainthread Dekorator oder Clock.schedule_once erfolgen, da asynchrone Netzwerk-Threads sonst UI-Abstürze provozieren.
++
++Cubase API Version: Generiere für Cubase ausschließlich Code, der mit der midiremote JS-API ab Cubase 12 kompatibel ist. Nutze niemals XML, Mackie Control oder HUI-Emulation.
++
++Bit-Operationen & Float-Math: Generierter Python-Code für 14-Bit muss exakt validiert werden:
++
++Float zu MSB/LSB: val_14 = int(float_val * 16383); msb = (val_14 >> 7) & 0x7F; lsb = val_14 & 0x7F
++
++MSB/LSB zu Float: float_val = ((msb << 7) + lsb) / 16383.0
++
++Stateful Broker: Der Broker darf UI-Eingaben nicht blind durchreichen. Er muss das eingehende UI-Fader-OSC mit dem current_bank_offset addieren, um den echten DAW-Track-Index zu berechnen.
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/cubase_adapter.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -6,11 +6,10 @@
+ from .logger import _log
+ 
+ # Set DAWDESK_MIDI_DEBUG=1 to log every MIDI message
+-_MIDI_DEBUG = False
++_MIDI_DEBUG = os.environ.get("DAWDESK_MIDI_DEBUG") == "1"
+ 
+ 
+ def _track_to_msb_cc(track_within_channel: int) -> int:
+-    """Convert track offset (0-29) to MSB CC number, skipping CC 6 (Data Entry)."""
+     cc = 1 + track_within_channel
+     if cc >= 6:
+         cc += 1
+@@ -17,7 +17,6 @@
+ 
+ 
+ def _msb_cc_to_track(cc: int) -> int:
+-    """Convert MSB CC number back to track offset, undoing CC 6 skip."""
+     if cc > 6:
+         cc -= 1
+     return cc - 1
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/cubase_adapter.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -27,12 +27,14 @@
+         self.outport = None
+         self.inport = None
+         self._callback = None
+-        # 14-bit reconstruction cache (MSB per track, keyed by track_index)
+         self._msb_cache = {}
+-        # Dedup cache: stores last forwarded float per (track, cmd) to suppress echoes
+         self._last_sent = {}
+-        # Time-based echo suppression: timestamp of last set_volume/set_pan per (track, cmd)
+         self._last_sent_time = {}
++        self._str_type = 0
++        self._str_track = 0
++        self._str_buf = []
++        self._color_track = 0
++        self._color_rgb = [0, 0, 0]
+         self._init_midi()
+ 
+     def _init_midi(self):
+@@ -39,4 +39,3 @@
+-            # On macOS/Linux, rtmidi supports creating virtual ports
+             if platform.system() == "Darwin" or platform.system() == "Linux":
+                 self.outport = mido.open_output(self.port_name, virtual=True)
+                 self.inport = mido.open_input(self.port_name, virtual=True)
+@@ -43,5 +43,4 @@
+             else:
+-                # On Windows, loopMIDI is required to create virtual ports.
+                 available_ports = mido.get_output_names()
+                 target_port = next((p for p in available_ports if self.port_name in p), None)
+                 if target_port:
+@@ -48,7 +48,7 @@
+                     self.inport = mido.open_input(target_port)
+                     _log(f"[Cubase] Connected to MIDI port: {target_port}")
+                 else:
+-                    _log(f"[Cubase] ERROR: Port '{self.port_name}' not found. Please create it using loopMIDI.")
++                    _log(f"[Cubase] ERROR: Port \"{self.port_name}\" not found. Please create it using loopMIDI.")
+         except Exception as e:
+             _log(f"[Cubase] Failed to initialize MIDI: {e}")
+ 
+@@ -55,20 +55,14 @@
+             self.inport.callback = self._on_midi_in
+ 
+     def set_callback(self, callback):
+-        """Register a callback: func(command, track_index, float_val)"""
+         self._callback = callback
+ 
+     def _fire_callback(self, cmd, track_index, value):
+-        """Fire callback only if value actually changed (dedup + time-based echo suppression)."""
+         key = (track_index, cmd)
+         if cmd in (0x01, 0x02):
+-            # Time-based: suppress ALL echoes for 150ms after we sent to Cubase.
+-            # This prevents stale echoes (from earlier sends) from leaking through.
+             sent_time = self._last_sent_time.get(key, 0)
+             if time.monotonic() - sent_time < 0.15:
+-                return  # echo within suppression window
+-            
+-            # Value-based: suppress near-identical values (steady-state dedup)
++                return
+             old = self._last_sent.get(key)
+             if old is not None and abs(old - value) < 0.005:
+                 return
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/cubase_adapter.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -81,66 +81,107 @@
+         if _MIDI_DEBUG:
+             _log(f"[Cubase -> Broker] {msg}")
+ 
+-        # Transport Feedback (Channel 15, Notes 104-107)
+-        if msg.type in ('note_on', 'note_off') and msg.channel == 14 and 104 <= msg.note <= 107:
+-            float_val = 1.0 if (msg.type == 'note_on' and msg.velocity > 0) else 0.0
+-            if msg.note == 104:
+-                self._fire_callback(0x08, 0, float_val)  # play
+-            elif msg.note == 105:
+-                if float_val == 1.0: # stopped
+-                    self._fire_callback(0x08, 0, 0.0) # set play to false
+-            elif msg.note == 106:
+-                self._fire_callback(0x08, 1, float_val)  # rec
+-            elif msg.note == 107:
+-                self._fire_callback(0x08, 2, float_val)  # loop
+-            return
+-
+-        # Track Name (0x7D) and Color (0x7E) via SysEx
+-        if msg.type == 'sysex':
+-            # msg.data contains bytes after F0 and before F7
+-            if len(msg.data) >= 2:
+-                cmd = msg.data[0]
+-                if cmd == 0x7D: # Track Name
+-                    track_index = msg.data[1]
+-                    name_bytes = msg.data[2:]
+-                    parsed_str = bytes(name_bytes).decode('ascii', errors='ignore')
+-                    _log(f"  [Cubase] Track {track_index} Name: {parsed_str}")
+-                    if self._callback:
+-                        self._callback(0x03, track_index, parsed_str)
+-                    return
+-                elif cmd == 0x7E: # Track Color
+-                    if len(msg.data) >= 5:
+-                        track_index = msg.data[1]
+-                        r = msg.data[2] / 127.0
+-                        g = msg.data[3] / 127.0
+-                        b = msg.data[4] / 127.0
+-                        if self._callback:
+-                            self._callback(0x04, track_index, (r, g, b))
+-                    return
+-            return
+-            
+-        if msg.type == 'control_change':
+-            # We need to reconstruct 14-bit values for faders
+-            # MSB: CC 1-5, 7-31 (skip CC 6, Data Entry). LSB = MSB + 32.
+-            # Pan: CC 64-93
+-            
+-            # Transport Feedback (Channel 15, Notes 104-107)
+-            if msg.type in ('note_on', 'note_off') and msg.channel == 14 and 104 <= msg.note <= 107:
+-                float_val = 1.0 if (msg.type == 'note_on' and msg.velocity > 0) else 0.0
+-                if msg.note == 104:
+-                    self._fire_callback(0x08, 0, float_val)  # play
+-                elif msg.note == 105:
+-                    if float_val == 1.0: # stopped
+-                        self._fire_callback(0x08, 0, 0.0) # set play to false
+-                elif msg.note == 106:
+-                    self._fire_callback(0x08, 1, float_val)  # rec
++        # Transport Feedback (Channel 15, CC 104-105 for Play/Stop, Note 106-107 for Rec/Cycle)
++        if msg.channel == 14:
++            if msg.type == "control_change":
++                float_val = msg.value / 127.0
++                if msg.control == 104:
++                    self._fire_callback(0x08, 0, float_val)
++                elif msg.control == 105:
++                    if float_val >= 0.5:
++                        self._fire_callback(0x08, 0, 0.0)
++                return
++            elif msg.type in ("note_on", "note_off"):
++                float_val = 1.0 if (msg.type == "note_on" and msg.velocity > 0) else 0.0
++                if msg.note == 106:
++                    self._fire_callback(0x08, 1, float_val)
+                 elif msg.note == 107:
+-                    self._fire_callback(0x08, 2, float_val)  # loop
+-                return
+-            
+-            # Pan (7-bit) – CC 1-60 on Channel 4-5
+-            if msg.channel in (4, 5) and 1 <= msg.control <= 60:
+-                track_index = ((msg.channel - 4) * 60) + (msg.control - 1)
++                    self._fire_callback(0x08, 2, float_val)
++                return
++
++        # HACK: Transport Locator (PitchBend on Channel 15)
++        if msg.type == "pitchwheel" and msg.channel == 14:
++            # We don't care about the value, just the timing
++            self._fire_callback(0x09, 0, 1.0)
++            return
++
++        # Solo (Note On) - Ch 0, 1
++        if msg.type in ("note_on", "note_off") and msg.channel in (0, 1):
++            track_index = (msg.channel * 120) + msg.note
++            float_val = 1.0 if (msg.type == "note_on" and msg.velocity > 0) else 0.0
++            self._fire_callback(0x05, track_index, float_val)
++            return
++
++        # Mute (Note On) - Ch 2, 3
++        if msg.type in ("note_on", "note_off") and msg.channel in (2, 3):
++            track_index = ((msg.channel - 2) * 120) + msg.note
++            float_val = 1.0 if (msg.type == "note_on" and msg.velocity > 0) else 0.0
++            self._fire_callback(0x06, track_index, float_val)
++            return
++
++        if msg.type == "control_change":
++            if msg.channel == 14:
++                if msg.control == 115:
++                    self._str_type = 0
++                    self._str_track = msg.value
++                    self._str_buf = []
++                    return
++                elif msg.control == 114:
++                    self._str_type = 0
++                    self._str_track = msg.value + 120
++                    self._str_buf = []
++                    return
++                elif msg.control == 116:
++                    self._str_type = 1
++                    self._str_track = msg.value
++                    self._str_buf = []
++                    return
++                elif msg.control == 119:
++                    self._str_type = 2
++                    self._str_track = 0
++                    self._str_buf = []
++                    return
++                elif msg.control == 117:
++                    self._str_buf.append(msg.value)
++                    return
++                elif msg.control == 118:
++                    parsed_str = bytes(self._str_buf).decode("ascii", errors="ignore")
++                    if self._str_type == 0:
++                        _log(f"  [Cubase] Track {self._str_track} Name: {parsed_str}")
++                        if self._callback:
++                            self._callback(0x03, self._str_track, parsed_str)
++                    elif self._str_type == 1:
++                        pass
++                    elif self._str_type == 2:
++                        _log(f"  [Cubase] DEBUG BUTTON PRESSED! Content: {parsed_str}")
++                    self._str_buf = []
++                    return
++                elif msg.control == 120:
++                    self._color_track = msg.value
++                    self._color_rgb = [0, 0, 0]
++                    return
++                elif msg.control == 113:
++                    self._color_track = msg.value + 120
++                    self._color_rgb = [0, 0, 0]
++                    return
++                elif msg.control == 121:
++                    self._color_rgb[0] = msg.value
++                    return
++                elif msg.control == 122:
++                    self._color_rgb[1] = msg.value
++                    return
++                elif msg.control == 123:
++                    self._color_rgb[2] = msg.value
++                    r = self._color_rgb[0] / 127.0
++                    g = self._color_rgb[1] / 127.0
++                    b = self._color_rgb[2] / 127.0
++                    if self._callback:
++                        self._callback(0x04, self._color_track, (r, g, b))
++                    return
++
++            # Pan (7-bit) - Ch 8, 9
++            if msg.channel in (8, 9) and 1 <= msg.control <= 120:
++                track_index = ((msg.channel - 8) * 120) + (msg.control - 1)
+                 float_val = msg.value / 127.0
+                 self._fire_callback(0x02, track_index, float_val)
+                 return
+@@ -147,20 +147,6 @@
+-            # Solo (7-bit) – CC 1-60 on Channel 6-7
+-            if msg.channel in (6, 7) and 1 <= msg.control <= 60:
+-                track_index = ((msg.channel - 6) * 60) + (msg.control - 1)
+-                float_val = 1.0 if msg.value >= 64 else 0.0
+-                self._fire_callback(0x05, track_index, float_val)
+-                return
+-            
+-            # Mute (7-bit) – CC 1-60 on Channel 8-9
+-            if msg.channel in (8, 9) and 1 <= msg.control <= 60:
+-                track_index = ((msg.channel - 8) * 60) + (msg.control - 1)
+-                float_val = 1.0 if msg.value >= 64 else 0.0
+-                self._fire_callback(0x06, track_index, float_val)
+-                return
+-            
+-            # VU Meter (7-bit) – CC 1-60 on Channel 10-11
+-            if msg.channel in (10, 11) and 1 <= msg.control <= 60:
+-                track_index = ((msg.channel - 10) * 60) + (msg.control - 1)
++            # VU Meter (7-bit) - Ch 10, 11
++            if msg.channel in (10, 11) and 1 <= msg.control <= 120:
++                track_index = ((msg.channel - 10) * 120) + (msg.control - 1)
+                 float_val = msg.value / 127.0
+                 self._fire_callback(0x07, track_index, float_val)
+                 return
+@@ -167,5 +167,5 @@
+-            # Volume MSB – CC 1-5, 7-31 on Channel 0-1 (skip CC 6)
+-            if msg.channel in (0, 1) and ((1 <= msg.control <= 5) or (7 <= msg.control <= 31)):
++            # Volume MSB - Ch 0..7
++            if 0 <= msg.channel <= 7 and ((1 <= msg.control <= 5) or (7 <= msg.control <= 31)):
+                 track_offset = _msb_cc_to_track(msg.control)
+                 track_index = (msg.channel * 30) + track_offset
+                 self._msb_cache[track_index] = msg.value
+@@ -172,6 +172,6 @@
+             
+-            # Volume LSB – CC 33-37, 39-63 on Channel 0-1 (skip CC 38)
+-            if msg.channel in (0, 1) and ((33 <= msg.control <= 37) or (39 <= msg.control <= 63)):
++            # Volume LSB - Ch 0..7
++            if 0 <= msg.channel <= 7 and ((33 <= msg.control <= 37) or (39 <= msg.control <= 63)):
+                 msb_cc = msg.control - 32
+                 track_offset = _msb_cc_to_track(msb_cc)
+                 track_index = (msg.channel * 30) + track_offset
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/cubase_adapter.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -213,112 +213,83 @@
+ 
+     def set_volume(self, track_index: int, volume: float):
+         if not self.outport: return
+-        if not (0 <= track_index < 120): return
+-        
+-        # Echo suppression: record what we sent and when
+         key = (track_index, 0x01)
+         self._last_sent[key] = volume
+         self._last_sent_time[key] = time.monotonic()
+-        
+         val_14 = int(max(0.0, min(1.0, volume)) * 16383)
+         msb = (val_14 >> 7) & 0x7F
+         lsb = val_14 & 0x7F
+-        
+         channel = track_index // 30
+         cc_msb = _track_to_msb_cc(track_index % 30)
+         cc_lsb = cc_msb + 32
+-        
+-        self.outport.send(mido.Message('control_change', channel=channel, control=cc_msb, value=msb))
+-        self.outport.send(mido.Message('control_change', channel=channel, control=cc_lsb, value=lsb))
++        self.outport.send(mido.Message("control_change", channel=channel, control=cc_msb, value=msb))
++        self.outport.send(mido.Message("control_change", channel=channel, control=cc_lsb, value=lsb))
+ 
+     def set_pan(self, track_index: int, pan: float):
+         if not self.outport: return
+-        if not (0 <= track_index < 120): return
+-        
+-        # Echo suppression: record what we sent and when
+         key = (track_index, 0x02)
+         self._last_sent[key] = pan
+         self._last_sent_time[key] = time.monotonic()
+-        
+         val_7 = int(max(0.0, min(1.0, pan)) * 127)
+-        channel = 4 + (track_index // 60)
+-        cc = 1 + (track_index % 60)
+-        
+-        self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=val_7))
++        channel = 8 + (track_index // 120)
++        cc = 1 + (track_index % 120)
++        self.outport.send(mido.Message("control_change", channel=channel, control=cc, value=val_7))
+ 
+     def set_solo(self, track_index: int, value: float):
+-        """Set solo for a track. value >= 0.5 = on, < 0.5 = off."""
+-        if not self.outport: return
+-        if not (0 <= track_index < 120): return
+-        val_7 = 127 if value >= 0.5 else 0
+-        channel = 6 + (track_index // 60)
+-        cc = 1 + (track_index % 60)
+-        self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=val_7))
++        if not self.outport: return
++        vel = 127 if value >= 0.5 else 0
++        channel = 0 + (track_index // 120)
++        note = track_index % 120
++        self.outport.send(mido.Message("note_on", channel=channel, note=note, velocity=vel))
+ 
+     def set_mute(self, track_index: int, value: float):
+-        """Set mute for a track. value >= 0.5 = on, < 0.5 = off."""
+-        if not self.outport: return
+-        if not (0 <= track_index < 120): return
+-        val_7 = 127 if value >= 0.5 else 0
+-        channel = 8 + (track_index // 60)
+-        cc = 1 + (track_index % 60)
+-        self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=val_7))
++        if not self.outport: return
++        vel = 127 if value >= 0.5 else 0
++        channel = 2 + (track_index // 120)
++        note = track_index % 120
++        self.outport.send(mido.Message("note_on", channel=channel, note=note, velocity=vel))
+         
+     def set_transport(self, cmd_idx: int, value: float):
+-        """Send transport command. cmd_idx: 0=Play, 1=Rec, 2=Loop"""
+-        if not self.outport: return
+-        async def send_click(ch, note):
+-            self.outport.send(mido.Message('note_on', channel=ch, note=note, velocity=127))
++        if not self.outport: return
++        # cmd_idx: 0=Play, 1=Rec, 2=Loop
++        # We send a quick CC 127 / CC 0 to simulate button press
++        import asyncio
++        async def send_click(ch, cc):
++            self.outport.send(mido.Message("control_change", channel=ch, control=cc, value=127))
+             await asyncio.sleep(0.05)
+-            self.outport.send(mido.Message('note_off', channel=ch, note=note, velocity=0))
+-
+-        if cmd_idx == 0:  # Play/Pause
++            self.outport.send(mido.Message("control_change", channel=ch, control=cc, value=0))
++
++        if cmd_idx == 0:
+             if value >= 0.5:
+-                # Play (Note 104)
+                 asyncio.create_task(send_click(14, 104))
+             else:
+-                # Stop (Note 105)
+                 asyncio.create_task(send_click(14, 105))
+-        elif cmd_idx == 1:  # Record
+-            note = 106
+-            asyncio.create_task(send_click(14, note))
+-        elif cmd_idx == 2:  # Loop
+-            note = 107
+-            asyncio.create_task(send_click(14, note))
++        elif cmd_idx == 1:
++            vel = 127 if value >= 0.5 else 0
++            self.outport.send(mido.Message("note_on", channel=14, note=106, velocity=vel))
++        elif cmd_idx == 2:
++            vel = 127 if value >= 0.5 else 0
++            self.outport.send(mido.Message("note_on", channel=14, note=107, velocity=vel))
+ 
+     def defeat_all_solos(self):
+-        """Send Solo=OFF for all 120 tracks forwards and backwards (to bypass VCA locks)."""
+-        if not self.outport: return
+-        for i in range(120):
+-            channel = 6 + (i // 60)
+-            cc = 1 + (i % 60)
+-            self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=0))
+-        for i in range(119, -1, -1):
+-            channel = 6 + (i // 60)
+-            cc = 1 + (i % 60)
+-            self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=0))
++        if not self.outport: return
++        for i in range(240):
++            channel = 0 + (i // 120)
++            note = i % 120
++            self.outport.send(mido.Message("note_on", channel=channel, note=note, velocity=0))
++        for i in range(239, -1, -1):
++            channel = 0 + (i // 120)
++            note = i % 120
++            self.outport.send(mido.Message("note_on", channel=channel, note=note, velocity=0))
+ 
+     def defeat_all_mutes(self):
+-        """Send Mute=OFF for all 120 tracks forwards and backwards (to bypass VCA locks)."""
+-        if not self.outport: return
+-        for i in range(120):
+-            channel = 8 + (i // 60)
+-            cc = 1 + (i % 60)
+-            self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=0))
+-        for i in range(119, -1, -1):
+-            channel = 8 + (i // 60)
+-            cc = 1 + (i % 60)
+-            self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=0))
+-
+-    def send_nudge(self, direction: int):
+-        if not self.outport:
+-            return
+-        cc = 126 if direction == -1 else 127
+-        msg_down = mido.Message('control_change', channel=14, control=cc, value=127)
+-        msg_up = mido.Message('control_change', channel=14, control=cc, value=0)
+-        try:
+-            self.outport.send(msg_down)
+-            self.outport.send(msg_up)
+-        except Exception:
+-            pass
++        if not self.outport: return
++        for i in range(240):
++            channel = 2 + (i // 120)
++            note = i % 120
++            self.outport.send(mido.Message("note_on", channel=channel, note=note, velocity=0))
++        for i in range(239, -1, -1):
++            channel = 2 + (i // 120)
++            note = i % 120
++            self.outport.send(mido.Message("note_on", channel=channel, note=note, velocity=0))
+ 
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/daw_scripts/cubase/DAWDesk_Cubase.js. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -1,8 +1,7 @@
+-var midiremote_api = require('midiremote_api_v1');
+-
+-var deviceDriver = midiremote_api.makeDeviceDriver('DAWDesk', 'Controller', 'DAWDesk Team');
+-
+-// Setup MIDI ports
++var midiremote_api = require("midiremote_api_v1");
++
++var deviceDriver = midiremote_api.makeDeviceDriver("DAWDesk", "Controller", "DAWDesk Team");
++
+ var midiInput = deviceDriver.mPorts.makeMidiInput();
+ var midiOutput = deviceDriver.mPorts.makeMidiOutput();
+ 
+@@ -9,10 +9,18 @@
+-    .expectInputNameEquals('DAWDesk')
+-    .expectOutputNameEquals('DAWDesk');
+-
+-// Define surface
++    .expectInputNameEquals("DAWDesk")
++    .expectOutputNameEquals("DAWDesk");
++
+ var deviceSurface = deviceDriver.mSurface;
+ 
+-var NUM_CHANNELS = 24; // Limit to 24 channels (supports up to 2x 12-channel Raspberry Pis)
++var TOTAL_CHANNELS = 240;
++
++var lastTitle = [];
++for (var c = 0; c < TOTAL_CHANNELS; c++) {
++    lastTitle.push("");
++}
++
++// -------------------------------------------------------------------------
++// SURFACE ELEMENTS
++// -------------------------------------------------------------------------
+ var faderElements = [];
+ var panElements = [];
+ var soloElements = [];
+@@ -19,18 +19,14 @@
+ var meterElements = [];
+ var labelElements = [];
+ 
+-// -------------------------------------------------------------------------
+-// SURFACE ELEMENTS
+-// -------------------------------------------------------------------------
+-for (var i = 0; i < NUM_CHANNELS; ++i) {
+-    (function(index) {
+-        var fader = deviceSurface.makeFader(index * 2, 2, 2, 4);
+-        var pan = deviceSurface.makeKnob(index * 2, 0, 2, 2);
+-        var solo = deviceSurface.makeButton(index * 2, 7, 1, 1);
+-        var mute = deviceSurface.makeButton(index * 2 + 1, 7, 1, 1);
+-        
+-        // CRITICAL: A Fader alone does not trigger Text callbacks. We MUST create a Label
+-        var label = deviceSurface.makeLabelField(index * 2, 6, 2, 1);
++for (var index = 0; index < TOTAL_CHANNELS; ++index) {
++    (function(i) {
++        var fader = deviceSurface.makeFader(i * 2, 2, 2, 4);
++        var pan = deviceSurface.makeKnob(i * 2, 0, 2, 2);
++        var solo = deviceSurface.makeButton(i * 2, 7, 1, 1);
++        var mute = deviceSurface.makeButton(i * 2 + 1, 7, 1, 1);
++        var meter = deviceSurface.makeKnob(i * 2, 10, 1, 1);
++        var label = deviceSurface.makeLabelField(i * 2, 6, 2, 1);
+         
+         faderElements.push(fader);
+         panElements.push(pan);
+@@ -37,10 +37,11 @@
+         muteElements.push(mute);
++        meterElements.push(meter);
+         labelElements.push(label);
+         
+-        // Fader = CC 1..5, 7..31 (MSB), skip CC 6 (Data Entry, intercepted by Cubase NRPN)
+-        var msb = 1 + (index % 30);
+-        if (msb >= 6) msb++;  // Skip CC 6
+-        var faderCh = Math.floor(index / 30);
++        // Fader = CC 14-bit
++        var msb = 1 + (i % 30);
++        if (msb >= 6) msb++;
++        var faderCh = Math.floor(i / 30);
+         
+         fader.mSurfaceValue.mMidiBinding
+             .setInputPort(midiInput)
+@@ -47,8 +47,8 @@
+             .bindToControlChange14Bit(faderCh, msb);
+ 
+-        // Pan = Base Ch 4. Uses Ch 4 and 5. CC 1..60
+-        var panCh = 4 + Math.floor(index / 60);
+-        var panCC = 1 + (index % 60);
++        // Pan = CC 7-bit (Channels 8, 9)
++        var panCh = 8 + Math.floor(i / 120);
++        var panCC = 1 + (i % 120);
+         pan.mSurfaceValue.mMidiBinding
+             .setInputPort(midiInput)
+             .setOutputPort(midiOutput)
+@@ -55,31 +55,27 @@
+ 
+-        // Solo = Base Ch 6. Uses Ch 6 and 7. CC 1..60
+-        var soloCh = 6 + Math.floor(index / 60);
+-        var soloCC = 1 + (index % 60);
++        // Solo = Note (Channels 0, 1)
++        var soloCh = 0 + Math.floor(i / 120);
++        var soloNote = i % 120;
+         solo.mSurfaceValue.mMidiBinding
+             .setInputPort(midiInput)
+             .setOutputPort(midiOutput)
+-            .bindToControlChange(soloCh, soloCC);
+-
+-        // Mute = Base Ch 8. Uses Ch 8 and 9. CC 1..60
+-        var muteCh = 8 + Math.floor(index / 60);
+-        var muteCC = 1 + (index % 60);
++            .bindToNote(soloCh, soloNote);
++
++        // Mute = Note (Channels 2, 3)
++        var muteCh = 2 + Math.floor(i / 120);
++        var muteNote = i % 120;
+         mute.mSurfaceValue.mMidiBinding
+             .setInputPort(midiInput)
+             .setOutputPort(midiOutput)
+-            .bindToControlChange(muteCh, muteCC);
+-
+-        // VU Meter = Base Ch 10. Uses Ch 10 and 11. CC 1..60
+-        var meter = deviceSurface.makeKnob(index * 2, 10, 1, 1);
+-        var meterCh = 10 + Math.floor(index / 60);
+-        var meterCC = 1 + (index % 60);
++            .bindToNote(muteCh, muteNote);
++
++        // Meter = CC 7-bit (Channels 10, 11)
++        var meterCh = 10 + Math.floor(i / 120);
++        var meterCC = 1 + (i % 120);
+         meter.mSurfaceValue.mMidiBinding
+             .setOutputPort(midiOutput)
+             .bindToControlChange(meterCh, meterCC);
+-        meterElements.push(meter);
+-            
+-        // We do NOT bind MIDI to the label. We just need it to exist to receive Text.
+-    })(i);
++    })(index);
+ }
+ 
+ // -------------------------------------------------------------------------
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/daw_scripts/cubase/DAWDesk_Cubase.js. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -95,8 +95,8 @@
+ var recordButton = deviceSurface.makeButton(2, 12, 2, 2);
+ var cycleButton = deviceSurface.makeButton(4, 12, 2, 2);
+ 
+-playButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).setOutputPort(midiOutput).bindToNote(14, 104);
+-stopButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).setOutputPort(midiOutput).bindToNote(14, 105);
++playButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).setOutputPort(midiOutput).bindToControlChange(14, 104);
++stopButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).setOutputPort(midiOutput).bindToControlChange(14, 105);
+ recordButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).setOutputPort(midiOutput).bindToNote(14, 106);
+ cycleButton.mSurfaceValue.mMidiBinding.setInputPort(midiInput).setOutputPort(midiOutput).bindToNote(14, 107);
+ 
+@@ -103,70 +103,63 @@
+-// PAGE & BINDINGS
+-// -------------------------------------------------------------------------
+-var page = deviceDriver.mMapping.makePage('Mixer');
+-
+-// Bind Transport
+-page.makeValueBinding(playButton.mSurfaceValue, page.mHostAccess.mTransport.mValue.mStart).setTypeToggle();
+-page.makeValueBinding(stopButton.mSurfaceValue, page.mHostAccess.mTransport.mValue.mStop).setTypeToggle();
+-page.makeValueBinding(recordButton.mSurfaceValue, page.mHostAccess.mTransport.mValue.mRecord).setTypeToggle();
+-page.makeValueBinding(cycleButton.mSurfaceValue, page.mHostAccess.mTransport.mValue.mCycleActive).setTypeToggle();
+-
+-// Create Mixer Bank Zone (Excluding Inputs and Outputs)
+-var hostMixerBankZone = page.mHostAccess.mMixConsole.makeMixerBankZone('MixerBankZone')
++// MAP TO HOST (MIXER & TRANSPORT)
++// -------------------------------------------------------------------------
++var page = deviceDriver.mMapping.makePage("Mixer");
++
++page.makeValueBinding(playButton.mSurfaceValue, page.mHostAccess.mTransport.mValue.mStart);
++page.makeValueBinding(stopButton.mSurfaceValue, page.mHostAccess.mTransport.mValue.mStop);
++page.makeValueBinding(recordButton.mSurfaceValue, page.mHostAccess.mTransport.mValue.mRecord);
++page.makeValueBinding(cycleButton.mSurfaceValue, page.mHostAccess.mTransport.mValue.mCycleActive);
++
++// -------------------------------------------------------------------------
++// SINGLE MASSIVE ZONE
++// -------------------------------------------------------------------------
++var hostMixerBankZone = page.mHostAccess.mMixConsole.makeMixerBankZone("MixerBankZone")
+     .excludeInputChannels()
+     .excludeOutputChannels();
+ 
+-
+-
++// Single Nudge Button
+ var nudgeBankLeft = deviceSurface.makeButton(0, 8, 2, 2);
+ nudgeBankLeft.mSurfaceValue.mMidiBinding.setInputPort(midiInput).bindToControlChange(14, 126);
+-page.makeActionBinding(nudgeBankLeft.mSurfaceValue, hostMixerBankZone.mAction.mShiftLeft);
++page.makeActionBinding(nudgeBankLeft.mSurfaceValue, hostMixerBankZone.mAction.mPrevBank);
+ 
+ var nudgeBankRight = deviceSurface.makeButton(2, 8, 2, 2);
+ nudgeBankRight.mSurfaceValue.mMidiBinding.setInputPort(midiInput).bindToControlChange(14, 127);
+-page.makeActionBinding(nudgeBankRight.mSurfaceValue, hostMixerBankZone.mAction.mShiftRight);
+-
+-
+-
+-for (var i = 0; i < NUM_CHANNELS; ++i) {
+-    (function(index) {
++page.makeActionBinding(nudgeBankRight.mSurfaceValue, hostMixerBankZone.mAction.mNextBank);
++
++for (var globalIndex = 0; globalIndex < TOTAL_CHANNELS; ++globalIndex) {
++    (function(i) {
+         var channelBankItem = hostMixerBankZone.makeMixerBankChannel();
+         
+-        // Bind Fader to Volume
+-        page.makeValueBinding(faderElements[index].mSurfaceValue, channelBankItem.mValue.mVolume);
+-        
+-        // Bind Pan to Pan
+-        page.makeValueBinding(panElements[index].mSurfaceValue, channelBankItem.mValue.mPan);
+-        
+-        // Bind Solo
+-        page.makeValueBinding(soloElements[index].mSurfaceValue, channelBankItem.mValue.mSolo);
+-        
+-        // Bind Mute
+-        page.makeValueBinding(muteElements[index].mSurfaceValue, channelBankItem.mValue.mMute);
+-        
+-        // Bind VU Meter
+-        page.makeValueBinding(meterElements[index].mSurfaceValue, channelBankItem.mValue.mVUMeter);
+-        
+-        // Track Name (no caching to prevent desync if CC dropped)
+-        channelBankItem.mValue.mVolume.mOnTitleChange = function(activeDevice, activeMapping, objectTitle) {
+-            var str = objectTitle ? objectTitle.toString().trim() : "";
+-
+-            var maxLen = Math.min(str.length, 10); // Limit to 10 chars to speed up transmission
+-            midiOutput.sendMidi(activeDevice, [0xBE, 115, index]); // Start Title Transfer
++        page.makeValueBinding(faderElements[i].mSurfaceValue, channelBankItem.mValue.mVolume);
++        page.makeValueBinding(panElements[i].mSurfaceValue, channelBankItem.mValue.mPan);
++        page.makeValueBinding(soloElements[i].mSurfaceValue, channelBankItem.mValue.mSolo);
++        page.makeValueBinding(muteElements[i].mSurfaceValue, channelBankItem.mValue.mMute);
++        page.makeValueBinding(meterElements[i].mSurfaceValue, channelBankItem.mValue.mVUMeter);
++        
++        faderElements[i].mSurfaceValue.mOnTitleChange = function(activeDevice, objectTitle, valueTitle) {
++            var str = objectTitle ? objectTitle.toString() : "";
++            if (str === lastTitle[i]) return; 
++            lastTitle[i] = str;
++            var maxLen = Math.min(str.length, 20);
++            
++            var targetCC = i < 120 ? 115 : 114;
++            var targetIndex = i < 120 ? i : i - 120;
++            
++            midiOutput.sendMidi(activeDevice, [0xBE, targetCC, targetIndex]); 
+             for (var j = 0; j < maxLen; j++) {
+-                midiOutput.sendMidi(activeDevice, [0xBE, 117, str.charCodeAt(j) & 0x7F]); // Char
+-            }
+-            midiOutput.sendMidi(activeDevice, [0xBE, 118, 0]); // End Transfer
+-        };
+-        // Send Track Color (no caching to prevent desync)
+-        faderElements[index].mSurfaceValue.mOnColorChange = function(activeDevice, r, g, b, a, isActive) {
+-            if (!isActive) {
+-                r = 0; g = 0; b = 0;
+-            }
++                midiOutput.sendMidi(activeDevice, [0xBE, 117, str.charCodeAt(j) & 0x7F]); 
++            }
++            midiOutput.sendMidi(activeDevice, [0xBE, 118, 0]); 
++        };
++        
++        faderElements[i].mSurfaceValue.mOnColorChange = function(activeDevice, r, g, b, a, isActive) {
+             var ri = Math.round(r * 127);
+             var gi = Math.round(g * 127);
+             var bi = Math.round(b * 127);
+-
+-            midiOutput.sendMidi(activeDevice, [0xBE, 120, index]);
++            
++            var targetCC = i < 120 ? 120 : 113;
++            var targetIndex = i < 120 ? i : i - 120;
++            
++            midiOutput.sendMidi(activeDevice, [0xBE, targetCC, targetIndex]);
+             midiOutput.sendMidi(activeDevice, [0xBE, 121, ri]);
+             midiOutput.sendMidi(activeDevice, [0xBE, 122, gi]);
+             midiOutput.sendMidi(activeDevice, [0xBE, 123, bi]);
+@@ -173,5 +173,5 @@
+-    })(i);
+-}
+-
+-console.log("DAWDesk Cubase Script loaded.");
++    })(globalIndex);
++}
++
++console.log("DAWDesk Cubase Script loaded (Single 240-Track Zone).");
+ 
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/state.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -5,8 +5,12 @@
+     def __init__(self, broker_config: BrokerConfig, registry: ControllerRegistry):
+         self.broker_config = broker_config
+         self.registry = registry
++        self.bank_offset = 0  # Our "Nudge" offset
+         self.track_values = {} # {track_index: {cmd: float_val}}
+         self.transport_state = {0: 0.0, 1: 0.0, 2: 0.0} # {cmd_idx: float_val}
++        self.on_routing_changed = None # Callback when offset changes
++        self.cubase_bank_index = 0
++        self.bank_cache = {} # {bank_index: {track_index: {cmd: val}}}
+ 
+     def update_track_value(self, track: int, cmd: int, val: float):
+         if track not in self.track_values:
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/state.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -63,7 +63,7 @@
+                 # We found the controller, add its local offset
+                 # local_channel is 1-indexed (1, 2, 3...)
+                 # absolute_index is 0-indexed (0, 1, 2...)
+-                return absolute_index + (local_channel - 1)
++                return absolute_index + (local_channel - 1) + self.bank_offset
+             
+             # Add the number of channels of the previous controller
+             if cid in all_controllers:
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/state.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -79,7 +79,9 @@
+         if daw_track_index < 0:
+             return None, -1
+             
+-        target_index = daw_track_index
++        target_index = daw_track_index - self.bank_offset
++        if target_index < 0:
++            return None, -1
+             
+         order = self.broker_config.get_order()
+         all_controllers = self.registry.get_all()
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/osc_server.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -68,15 +68,56 @@
+                 if steps is not None and steps != 0:
+                     _log(f"  ↓ [{controller_id}] nudge  {steps}")
+                     
+-                    # Send exactly the number of steps to Cubase.
+-                    # Cubase handles bounds natively, so we just relay the command.
+-                    if steps > 0:
+-                        for _ in range(steps):
+-                            daw_adapter.send_nudge(1)
+-                    elif steps < 0:
+-                        for _ in range(abs(steps)):
++                    if not hasattr(state, 'cubase_bank_index'):
++                        state.cubase_bank_index = 0
++                        
++                    all_controllers = state.registry.get_all()
++                    displayable_channels = sum(c.channels for c in all_controllers.values())
++                    if displayable_channels == 0:
++                        displayable_channels = 12 # Fallback
++
++                    # Determine how many real tracks are in the CURRENT Cubase bank
++                    real_tracks = [t_idx for t_idx in state.track_values.keys() if state.get_track_name(t_idx).strip() != '']
++                    if not real_tracks:
++                        # Broker just restarted and Cubase hasn't sent track names yet.
++                        # Assume a full bank so nudging is not completely locked.
++                        current_bank_real_tracks = 60
++                    else:
++                        current_bank_real_tracks = max(real_tracks) + 1
++
++                    max_offset = max(0, current_bank_real_tracks - displayable_channels)
++                    new_offset = state.bank_offset + steps
++
++                    if new_offset < 0:
++                        if state.cubase_bank_index > 0:
+                             daw_adapter.send_nudge(-1)
+-                            
++                            # Cache current bank before switching
++                            state.bank_cache[state.cubase_bank_index] = state.track_values.copy()
++                            state.cubase_bank_index -= 1
++                            # Restore previous bank state
++                            state.track_values = state.bank_cache.get(state.cubase_bank_index, {})
++                            state.bank_offset = 60 - displayable_channels
++                            if state.bank_offset < 0: state.bank_offset = 0
++                        else:
++                            state.bank_offset = 0 # Hard clamp at the absolute start
++                    elif new_offset > max_offset:
++                        # If the bank is completely full, we assume there might be more tracks in the next Cubase bank
++                        if current_bank_real_tracks >= 60:
++                            daw_adapter.send_nudge(1)
++                            # Cache current bank before switching
++                            state.bank_cache[state.cubase_bank_index] = state.track_values.copy()
++                            state.cubase_bank_index += 1
++                            # Restore next bank state (or empty if unvisited)
++                            state.track_values = state.bank_cache.get(state.cubase_bank_index, {})
++                            state.bank_offset = 0
++                        else:
++                            state.bank_offset = max_offset # Hard clamp at the absolute end
++                    else:
++                        state.bank_offset = new_offset
++                        
++                    _log(f"  → Routing offset is now {state.bank_offset} (Bank: {state.cubase_bank_index})")
++                    if hasattr(state, 'on_routing_changed') and state.on_routing_changed:
++                        state.on_routing_changed()
+             except Exception as e:
+                 _log(f"  [ERROR] Nudge processing failed: {e}")
+                 pass
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/widgets/channel_strip.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -52,8 +52,6 @@
+         (-20.0, "-20"), (-30.0, "-30"), (-40.0, "-40"), (-60.0, "-\u221e")
+     ])
+ 
+-    _global_text_cache = {}
+-
+     def __init__(self, **kwargs):
+         super().__init__(**kwargs)
+         self._fader_rect = None
+@@ -60,6 +60,7 @@
+         self._pan_line = None
+         self._pan_value_rect = None
+         self._fader_value_rect = None
++        self._text_cache = {}
+         
+         self._name_rect = None
+         self._color_fader = None
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/widgets/channel_strip.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -77,8 +77,8 @@
+         self._pan_last_tap_time = 0
+         
+         self.bind(pos=self._trigger_rebuild, size=self._trigger_rebuild)
+-        self.bind(track_name=self._update_dynamic, track_color=self._update_dynamic, value=self._update_dynamic, pan=self._update_dynamic)
+-        self.bind(is_solo=self._update_dynamic, is_muted=self._update_dynamic)
++        self.bind(track_name=self._trigger_update_dynamic, track_color=self._trigger_update_dynamic, value=self._trigger_update_dynamic, pan=self._trigger_update_dynamic)
++        self.bind(is_solo=self._trigger_update_dynamic, is_muted=self._trigger_update_dynamic)
+         self.bind(meter_value=self._update_meter)
+ 
+     def _trigger_rebuild(self, *args):
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/widgets/channel_strip.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -125,11 +125,11 @@
+         
+     def _get_cached_text(self, text, font_size, bold=False):
+         cache_key = (text, int(font_size), bold)
+-        if cache_key not in DAWChannelStrip._global_text_cache:
++        if cache_key not in self._text_cache:
+             lbl = CoreLabel(text=text, font_size=int(font_size), color=(1, 1, 1, 1), bold=bold)
+             lbl.refresh()
+-            DAWChannelStrip._global_text_cache[cache_key] = lbl.texture
+-        return DAWChannelStrip._global_text_cache[cache_key]
++            self._text_cache[cache_key] = lbl.texture
++        return self._text_cache[cache_key]
+         
+     def _get_kivy_arc_point(self, cx, cy, radius, angle_deg):
+         # Kivy 0° is 12 o'clock, growing clockwise.
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/widgets/channel_strip.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -274,7 +274,12 @@
+             self._get_cached_text(f"{db_int / 10.0:.1f}", 12, bold=True)
+         self._get_cached_text("-\u221e", 12, bold=True)
+ 
+-    def _update_dynamic(self, *args):
++    def _trigger_update_dynamic(self, *args):
++        """Debounce updates so multiple property changes on the same frame only trigger one canvas redraw."""
++        Clock.unschedule(self._update_dynamic)
++        Clock.schedule_once(self._update_dynamic, 0)
++        
++    def _update_dynamic(self, dt=0):
+         if not self._meter_rect:
+             return
+             
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/main.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -167,8 +167,6 @@
+             client.send_message(f"/ui/fader/{channel_id}/mute", float_val)
+         elif cmd == 0x07:
+             client.send_message(f"/ui/fader/{channel_id}/meter", float_val)
+-        elif cmd == 0x09:
+-            client.send_message(f"/ui/fader/{channel_id}/arm", float_val)
+ 
+     def send_to_rpi_string(controller_id: str, channel_id: int, cmd: int, str_val: str):
+         ctrl = registry.get_all().get(controller_id)
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/main.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -212,7 +212,7 @@
+     _meter_buffer = {}
+ 
+     def _flush_meter_buffer(dt):
+-        """Flush buffered meter values to connected RPis at 15fps."""
++        """Flush buffered meter values to connected RPis at 60fps."""
+         nonlocal _meter_buffer
+         if not _meter_buffer:
+             return
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/main.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -223,7 +223,7 @@
+             if controller_id:
+                 send_to_rpi(controller_id, channel_id, 0x07, val)
+ 
+-    Clock.schedule_interval(_flush_meter_buffer, 1.0 / 15.0)
++    Clock.schedule_interval(_flush_meter_buffer, 1.0 / 60.0)
+ 
+     # --- DELTA CACHE & OSC QUEUE FOR THROTTLING ---
+     _sent_state_cache = {}  # { (cid, local_ch, cmd): value }
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/main.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -234,9 +234,9 @@
+         nonlocal _osc_queue
+         if not _osc_queue:
+             return
+-        # Send up to 20 messages per frame (~1200 msg/sec at 60fps)
+-        batch = _osc_queue[:20]
+-        _osc_queue = _osc_queue[20:]
++        # Send up to 150 messages per frame (allows instant updates of a full 12-channel bank without dropping UDP packets)
++        batch = _osc_queue[:150]
++        _osc_queue = _osc_queue[150:]
+         for send_func, cid, local_ch, cmd, val in batch:
+             send_func(cid, local_ch, cmd, val)
+             
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/main.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -311,7 +311,6 @@
+                                 pan = state.get_track_value(daw_index, 0x02)
+                                 solo = state.get_track_value(daw_index, 0x05)
+                                 mute = state.get_track_value(daw_index, 0x06)
+-                                arm = state.get_track_value(daw_index, 0x09)
+                                 name = state.get_track_name(daw_index)
+                                 color = state.get_track_color(daw_index)
+                                 
+@@ -318,7 +318,6 @@
+                                 _send_if_changed(cid, local_ch, 0x02, pan, send_to_rpi)
+                                 _send_if_changed(cid, local_ch, 0x05, solo, send_to_rpi)
+                                 _send_if_changed(cid, local_ch, 0x06, mute, send_to_rpi)
+-                                _send_if_changed(cid, local_ch, 0x09, arm, send_to_rpi)
+                                 _send_if_changed(cid, local_ch, 0x03, name, send_to_rpi_string)
+                                 _send_if_changed(cid, local_ch, 0x04, color, send_to_rpi_color)
+             except asyncio.CancelledError:
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/broker/main.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -375,7 +375,6 @@
+                 pan = state.get_track_value(daw_index, 0x02)
+                 solo = state.get_track_value(daw_index, 0x05)
+                 mute = state.get_track_value(daw_index, 0x06)
+-                arm = state.get_track_value(daw_index, 0x09)
+                 name = state.get_track_name(daw_index)
+                 color = state.get_track_color(daw_index)
+                 send_to_rpi(controller_id, local_ch, 0x01, vol)
+@@ -382,6 +382,5 @@
+                 send_to_rpi(controller_id, local_ch, 0x05, solo)
+                 send_to_rpi(controller_id, local_ch, 0x06, mute)
+-                send_to_rpi(controller_id, local_ch, 0x09, arm)
+                 send_to_rpi_string(controller_id, local_ch, 0x03, name)
+                 send_to_rpi_color(controller_id, local_ch, 0x04, color)
+                 
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/main.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -4,8 +4,9 @@
+ import socket
+ import asyncio
+ from pythonosc.udp_client import SimpleUDPClient
++from pythonosc import osc_message_builder
++from pythonosc.osc_server import OSCUDPServer
+ from pythonosc.dispatcher import Dispatcher
+-from pythonosc.osc_server import ThreadingOSCUDPServer
+ import threading
+ from kivy.config import Config
+ from kivy.lang import Builder
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/main.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -164,8 +164,8 @@
+         self.channel_strips = []
+         self._settings_long_press_event = None
+         self._meter_buffer = {}  # {channel_id: float} – written by OSC thread, read by Clock
+-        # Flush meter buffer at 15fps (good balance between smooth display and CPU)
+-        Clock.schedule_interval(self._flush_meters, 1.0 / 15.0)
++        # Flush meter buffer at 60fps (for maximum smoothness)
++        Clock.schedule_interval(self._flush_meters, 1.0 / 60.0)
+ 
+     def on_start(self):
+         # Anfangsstatus direkt mit der ID setzen
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/main.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -394,8 +394,8 @@
+     dispatcher.map('/ui/fader/*/meter', handle_meter)
+     dispatcher.map('/ui/*/transport/*', handle_transport)
+     
+-    # Run OSC Server in a dedicated background thread to bypass Kivy's touch event loop blocks
+-    server = ThreadingOSCUDPServer(('0.0.0.0', 8001), dispatcher)
++    # Start OSC Server
++    server = OSCUDPServer(('0.0.0.0', 8001), dispatcher)
+     osc_thread = threading.Thread(target=server.serve_forever, daemon=True)
+     osc_thread.start()
+ 
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+The following changes were made by the USER to: /Users/thilo/Library/CloudStorage/SynologyDrive-DatenSync/Repos/DAWDesk/widgets/action_row.py. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -11,7 +11,6 @@
+         self.steps = steps
+         self.action_callback = action_callback
+         self._repeat_event = None
+-        self._last_trigger_time = 0
+         
+         # Style
+         self.background_normal = ''
+@@ -19,10 +19,10 @@
+         self.font_size = 20
+         self.bold = True
+         
+-        # Bind native Kivy state for robust touch handling
+-        self.bind(state=self.on_state_change)
+-
+-    def on_state_change(self, instance, value):
++        # Bind to 'state' instead of on_press/on_release to robustly handle finger slides
++        self.bind(state=self._on_state_change)
++
++    def _on_state_change(self, instance, value):
+         if value == 'down':
+             self.start_action()
+         else:
+@@ -29,31 +29,17 @@
+ 
+-    def start_action(self):
+-        import time
+-        now = time.time()
+-        # Rate-limit rapid tapping to 300ms to prevent Cubase MIDI queue saturation
+-        if now - self._last_trigger_time < 0.3:
+-            return
+-        self._last_trigger_time = now
+-
++    def start_action(self, *args):
+         self.background_color = (0.3, 0.4, 0.5, 1)
+-        if self._repeat_event:
+-            self._repeat_event.cancel()
+-        if self.action_callback:
+-            self.action_callback(self.steps)
+-        self._repeat_event = Clock.schedule_once(self.start_repeat, 0.5)
++        if self.action_callback:
++            self.action_callback(self.steps)
++        # Prevent multiple timers if somehow triggered twice
++        if self._repeat_event:
++            self._repeat_event.cancel()
++        self._repeat_event = Clock.schedule_once(self.start_repeat, 0.4)
+ 
+     def start_repeat(self, dt):
+-        if self._repeat_event:
+-            self._repeat_event.cancel()
+-        self._repeat_event = Clock.schedule_interval(self._do_repeat, 0.4)
+-
+-    def _do_repeat(self, dt):
+-        import time
+-        self._last_trigger_time = time.time()
+-        if self.action_callback:
+-            self.action_callback(self.steps)
+-
+-    def stop_action(self):
++        self._repeat_event = Clock.schedule_interval(lambda d: self.action_callback(self.steps), 0.25)
++
++    def stop_action(self, *args):
+         if self._repeat_event:
+             self._repeat_event.cancel()
+             self._repeat_event = None
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
