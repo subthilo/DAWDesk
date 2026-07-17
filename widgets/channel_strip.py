@@ -559,10 +559,15 @@ class DAWChannelStrip(Widget):
                 self._label_long_press_event.cancel()
                 self._label_long_press_event = None
             # Re-send final value to ensure sync with Cubase.
+            # We send it redundantly (immediately, +50ms, +100ms) to combat UDP packet loss on Wi-Fi.
             if ctrl == 'fader' and self._touch_moved:
                 self._send_volume_osc()
+                Clock.schedule_once(lambda dt: self._send_volume_osc(), 0.05)
+                Clock.schedule_once(lambda dt: self._send_volume_osc(), 0.10)
             elif ctrl == 'pan':
                 self._send_pan_osc()
+                Clock.schedule_once(lambda dt: self._send_pan_osc(), 0.05)
+                Clock.schedule_once(lambda dt: self._send_pan_osc(), 0.10)
             self.is_touched = False
             touch.ungrab(self)
             return True
