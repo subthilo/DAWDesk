@@ -114,7 +114,36 @@ class CubaseAdapter:
         if msg.type == 'sysex':
             return
             
+        # Transport Feedback (Channel 15, Notes 104-107)
+        if msg.type in ('note_on', 'note_off') and msg.channel == 14 and 104 <= msg.note <= 107:
+            float_val = 1.0 if (msg.type == 'note_on' and msg.velocity > 0) else 0.0
+            if msg.note == 104:
+                self._fire_callback(0x08, 0, float_val)  # play
+            elif msg.note == 105:
+                if float_val == 1.0: # stopped
+                    self._fire_callback(0x08, 0, 0.0) # set play to false
+            elif msg.note == 106:
+                self._fire_callback(0x08, 1, float_val)  # rec
+            elif msg.note == 107:
+                self._fire_callback(0x08, 2, float_val)  # loop
+            return
+            
+        # Solo (Note) – Note 0-119 on Channel 8-9
+        if msg.type in ('note_on', 'note_off') and msg.channel in (8, 9) and 0 <= msg.note <= 119:
+            track_index = ((msg.channel - 8) * 120) + msg.note
+            float_val = 1.0 if (msg.type == 'note_on' and msg.velocity > 0) else 0.0
+            self._fire_callback(0x05, track_index, float_val)
+            return
+            
+        # Mute (Note) – Note 0-119 on Channel 10-11
+        if msg.type in ('note_on', 'note_off') and msg.channel in (10, 11) and 0 <= msg.note <= 119:
+            track_index = ((msg.channel - 10) * 120) + msg.note
+            float_val = 1.0 if (msg.type == 'note_on' and msg.velocity > 0) else 0.0
+            self._fire_callback(0x06, track_index, float_val)
+            return
+
         if msg.type == 'control_change':
+            
             # Handle DAWDesk CC-ASCII Stream (Channel 15 -> msg.channel == 14)
             if msg.channel == 14:
                 if msg.control == 115:   # Start Title
@@ -166,48 +195,17 @@ class CubaseAdapter:
                     if self._callback:
                         self._callback(0x04, self._color_track, (r, g, b))
                     return
-            # We need to reconstruct 14-bit values for faders
-            # MSB: CC 1-5, 7-31 (skip CC 6, Data Entry). LSB = MSB + 32.
-            # Pan: CC 64-93
-            
-            # Transport Feedback (Channel 15, Notes 104-107)
-            if msg.type in ('note_on', 'note_off') and msg.channel == 14 and 104 <= msg.note <= 107:
-                float_val = 1.0 if (msg.type == 'note_on' and msg.velocity > 0) else 0.0
-                if msg.note == 104:
-                    self._fire_callback(0x08, 0, float_val)  # play
-                elif msg.note == 105:
-                    if float_val == 1.0: # stopped
-                        self._fire_callback(0x08, 0, 0.0) # set play to false
-                elif msg.note == 106:
-                    self._fire_callback(0x08, 1, float_val)  # rec
-                elif msg.note == 107:
-                    self._fire_callback(0x08, 2, float_val)  # loop
-                return
-            
-            # Pan (7-bit) – CC 1-60 on Channel 4-5
-            if msg.channel in (4, 5) and 1 <= msg.control <= 60:
-                track_index = ((msg.channel - 4) * 60) + (msg.control - 1)
+
+            # Pan (7-bit) – CC 1-120 on Channel 8-9
+            if msg.type == 'control_change' and msg.channel in (8, 9) and 1 <= msg.control <= 120:
+                track_index = ((msg.channel - 8) * 120) + (msg.control - 1)
                 float_val = msg.value / 127.0
                 self._fire_callback(0x02, track_index, float_val)
                 return
             
-            # Solo (7-bit) – CC 1-60 on Channel 6-7
-            if msg.channel in (6, 7) and 1 <= msg.control <= 60:
-                track_index = ((msg.channel - 6) * 60) + (msg.control - 1)
-                float_val = 1.0 if msg.value >= 64 else 0.0
-                self._fire_callback(0x05, track_index, float_val)
-                return
-            
-            # Mute (7-bit) – CC 1-60 on Channel 8-9
-            if msg.channel in (8, 9) and 1 <= msg.control <= 60:
-                track_index = ((msg.channel - 8) * 60) + (msg.control - 1)
-                float_val = 1.0 if msg.value >= 64 else 0.0
-                self._fire_callback(0x06, track_index, float_val)
-                return
-            
-            # VU Meter (7-bit) – CC 1-60 on Channel 10-11
-            if msg.channel in (10, 11) and 1 <= msg.control <= 60:
-                track_index = ((msg.channel - 10) * 60) + (msg.control - 1)
+            # VU Meter (7-bit) – CC 1-120 on Channel 10-11
+            if msg.type == 'control_change' and msg.channel in (10, 11) and 1 <= msg.control <= 120:
+                track_index = ((msg.channel - 10) * 120) + (msg.control - 1)
                 float_val = msg.value / 127.0
                 self._fire_callback(0x07, track_index, float_val)
                 return
@@ -232,7 +230,7 @@ class CubaseAdapter:
 
     def set_volume(self, track_index: int, volume: float):
         if not self.outport: return
-        if not (0 <= track_index < 120): return
+        if not (0 <= track_index < 240): return
         
         # Echo suppression: record what we sent and when
         key = (track_index, 0x01)
@@ -252,7 +250,7 @@ class CubaseAdapter:
 
     def set_pan(self, track_index: int, pan: float):
         if not self.outport: return
-        if not (0 <= track_index < 120): return
+        if not (0 <= track_index < 240): return
         
         # Echo suppression: record what we sent and when
         key = (track_index, 0x02)
@@ -260,28 +258,28 @@ class CubaseAdapter:
         self._last_sent_time[key] = time.monotonic()
         
         val_7 = int(max(0.0, min(1.0, pan)) * 127)
-        channel = 4 + (track_index // 60)
-        cc = 1 + (track_index % 60)
+        channel = 8 + (track_index // 120)
+        cc = 1 + (track_index % 120)
         
         self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=val_7))
 
     def set_solo(self, track_index: int, value: float):
         """Set solo for a track. value >= 0.5 = on, < 0.5 = off."""
         if not self.outport: return
-        if not (0 <= track_index < 120): return
-        val_7 = 127 if value >= 0.5 else 0
-        channel = 6 + (track_index // 60)
-        cc = 1 + (track_index % 60)
-        self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=val_7))
+        if not (0 <= track_index < 240): return
+        vel = 127 if value >= 0.5 else 0
+        channel = 8 + (track_index // 120)
+        note = track_index % 120
+        self.outport.send(mido.Message('note_on', channel=channel, note=note, velocity=vel))
 
     def set_mute(self, track_index: int, value: float):
         """Set mute for a track. value >= 0.5 = on, < 0.5 = off."""
         if not self.outport: return
-        if not (0 <= track_index < 120): return
-        val_7 = 127 if value >= 0.5 else 0
-        channel = 8 + (track_index // 60)
-        cc = 1 + (track_index % 60)
-        self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=val_7))
+        if not (0 <= track_index < 240): return
+        vel = 127 if value >= 0.5 else 0
+        channel = 10 + (track_index // 120)
+        note = track_index % 120
+        self.outport.send(mido.Message('note_on', channel=channel, note=note, velocity=vel))
         
     def set_transport(self, cmd_idx: int, value: float):
         """Send transport command. cmd_idx: 0=Play, 1=Rec, 2=Loop"""
@@ -306,28 +304,28 @@ class CubaseAdapter:
             asyncio.create_task(send_click(14, note))
 
     def defeat_all_solos(self):
-        """Send Solo=OFF for all 120 tracks forwards and backwards (to bypass VCA locks)."""
+        """Send Solo=OFF for all tracks forwards and backwards (to bypass VCA locks)."""
         if not self.outport: return
-        for i in range(120):
-            channel = 6 + (i // 60)
-            cc = 1 + (i % 60)
-            self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=0))
-        for i in range(119, -1, -1):
-            channel = 6 + (i // 60)
-            cc = 1 + (i % 60)
-            self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=0))
+        for i in range(240):
+            channel = 8 + (i // 120)
+            note = i % 120
+            self.outport.send(mido.Message('note_on', channel=channel, note=note, velocity=0))
+        for i in range(239, -1, -1):
+            channel = 8 + (i // 120)
+            note = i % 120
+            self.outport.send(mido.Message('note_on', channel=channel, note=note, velocity=0))
 
     def defeat_all_mutes(self):
-        """Send Mute=OFF for all 120 tracks forwards and backwards (to bypass VCA locks)."""
+        """Send Mute=OFF for all tracks forwards and backwards (to bypass VCA locks)."""
         if not self.outport: return
-        for i in range(120):
-            channel = 8 + (i // 60)
-            cc = 1 + (i % 60)
-            self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=0))
-        for i in range(119, -1, -1):
-            channel = 8 + (i // 60)
-            cc = 1 + (i % 60)
-            self.outport.send(mido.Message('control_change', channel=channel, control=cc, value=0))
+        for i in range(240):
+            channel = 10 + (i // 120)
+            note = i % 120
+            self.outport.send(mido.Message('note_on', channel=channel, note=note, velocity=0))
+        for i in range(239, -1, -1):
+            channel = 10 + (i // 120)
+            note = i % 120
+            self.outport.send(mido.Message('note_on', channel=channel, note=note, velocity=0))
 
     def send_nudge(self, direction: int):
         if not self.outport:

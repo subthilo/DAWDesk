@@ -81,7 +81,7 @@ def create_dispatcher(state: BrokerState, daw_adapter: CubaseAdapter) -> Dispatc
                     if not real_tracks:
                         # Broker just restarted and Cubase hasn't sent track names yet.
                         # Assume a full bank so nudging is not completely locked.
-                        current_bank_real_tracks = 60
+                        current_bank_real_tracks = 240
                     else:
                         current_bank_real_tracks = max(real_tracks) + 1
 
@@ -96,13 +96,13 @@ def create_dispatcher(state: BrokerState, daw_adapter: CubaseAdapter) -> Dispatc
                             state.cubase_bank_index -= 1
                             # Restore previous bank state
                             state.track_values = state.bank_cache.get(state.cubase_bank_index, {})
-                            state.bank_offset = 60 - displayable_channels
+                            state.bank_offset = 240 - displayable_channels
                             if state.bank_offset < 0: state.bank_offset = 0
                         else:
                             state.bank_offset = 0 # Hard clamp at the absolute start
                     elif new_offset > max_offset:
                         # If the bank is completely full, we assume there might be more tracks in the next Cubase bank
-                        if current_bank_real_tracks >= 60:
+                        if current_bank_real_tracks >= 240:
                             daw_adapter.send_nudge(1)
                             # Cache current bank before switching
                             state.bank_cache[state.cubase_bank_index] = state.track_values.copy()

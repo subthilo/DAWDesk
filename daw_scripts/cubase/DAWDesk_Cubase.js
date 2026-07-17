@@ -13,7 +13,7 @@ deviceDriver.makeDetectionUnit().detectPortPair(midiInput, midiOutput)
 // Define surface
 var deviceSurface = deviceDriver.mSurface;
 
-var NUM_CHANNELS = 60; // Internal buffer, max supported tracks per bank
+var NUM_CHANNELS = 240; // Internal buffer, max supported tracks per bank
 var faderElements = [];
 var panElements = [];
 var soloElements = [];
@@ -55,34 +55,34 @@ for (var i = 0; i < NUM_CHANNELS; ++i) {
             .setOutputPort(midiOutput)
             .bindToControlChange14Bit(faderCh, msb);
 
-        // Pan = Base Ch 4. Uses Ch 4 and 5. CC 1..60
-        var panCh = 4 + Math.floor(index / 60);
-        var panCC = 1 + (index % 60);
+        // Pan = Base Ch 8. Uses Ch 8 and 9. CC 1..120
+        var panCh = 8 + Math.floor(index / 120);
+        var panCC = 1 + (index % 120);
         pan.mSurfaceValue.mMidiBinding
             .setInputPort(midiInput)
             .setOutputPort(midiOutput)
             .bindToControlChange(panCh, panCC);
 
-        // Solo = Base Ch 6. Uses Ch 6 and 7. CC 1..60
-        var soloCh = 6 + Math.floor(index / 60);
-        var soloCC = 1 + (index % 60);
+        // Solo = Base Ch 8. Uses Ch 8 and 9. Note 0..119
+        var soloCh = 8 + Math.floor(index / 120);
+        var soloNote = index % 120;
         solo.mSurfaceValue.mMidiBinding
             .setInputPort(midiInput)
             .setOutputPort(midiOutput)
-            .bindToControlChange(soloCh, soloCC);
+            .bindToNote(soloCh, soloNote);
 
-        // Mute = Base Ch 8. Uses Ch 8 and 9. CC 1..60
-        var muteCh = 8 + Math.floor(index / 60);
-        var muteCC = 1 + (index % 60);
+        // Mute = Base Ch 10. Uses Ch 10 and 11. Note 0..119
+        var muteCh = 10 + Math.floor(index / 120);
+        var muteNote = index % 120;
         mute.mSurfaceValue.mMidiBinding
             .setInputPort(midiInput)
             .setOutputPort(midiOutput)
-            .bindToControlChange(muteCh, muteCC);
+            .bindToNote(muteCh, muteNote);
 
-        // VU Meter = Base Ch 10. Uses Ch 10 and 11. CC 1..60
+        // VU Meter = Base Ch 10. Uses Ch 10 and 11. CC 1..120
         var meter = deviceSurface.makeKnob(index * 2, 10, 1, 1);
-        var meterCh = 10 + Math.floor(index / 60);
-        var meterCC = 1 + (index % 60);
+        var meterCh = 10 + Math.floor(index / 120);
+        var meterCC = 1 + (index % 120);
         meter.mSurfaceValue.mMidiBinding
             .setOutputPort(midiOutput)
             .bindToControlChange(meterCh, meterCC);
