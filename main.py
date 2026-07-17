@@ -4,8 +4,9 @@ import time
 import socket
 import asyncio
 from pythonosc.udp_client import SimpleUDPClient
+from pythonosc import osc_message_builder
+from pythonosc.osc_server import OSCUDPServer
 from pythonosc.dispatcher import Dispatcher
-from pythonosc.osc_server import ThreadingOSCUDPServer
 import threading
 from kivy.config import Config
 from kivy.lang import Builder
@@ -163,8 +164,8 @@ class DAWDeskApp(App):
         self.channel_strips = []
         self._settings_long_press_event = None
         self._meter_buffer = {}  # {channel_id: float} – written by OSC thread, read by Clock
-        # Flush meter buffer at 15fps (good balance between smooth display and CPU)
-        Clock.schedule_interval(self._flush_meters, 1.0 / 15.0)
+        # Flush meter buffer at 60fps (for maximum smoothness)
+        Clock.schedule_interval(self._flush_meters, 1.0 / 60.0)
 
     def on_start(self):
         # Anfangsstatus direkt mit der ID setzen
@@ -393,8 +394,8 @@ async def run_app():
     dispatcher.map('/ui/fader/*/meter', handle_meter)
     dispatcher.map('/ui/*/transport/*', handle_transport)
     
-    # Run OSC Server in a dedicated background thread to bypass Kivy's touch event loop blocks
-    server = ThreadingOSCUDPServer(('0.0.0.0', 8001), dispatcher)
+    # Start OSC Server
+    server = OSCUDPServer(('0.0.0.0', 8001), dispatcher)
     osc_thread = threading.Thread(target=server.serve_forever, daemon=True)
     osc_thread.start()
 

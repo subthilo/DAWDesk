@@ -91,8 +91,11 @@ def create_dispatcher(state: BrokerState, daw_adapter: CubaseAdapter) -> Dispatc
                     if new_offset < 0:
                         if state.cubase_bank_index > 0:
                             daw_adapter.send_nudge(-1)
+                            # Cache current bank before switching
+                            state.bank_cache[state.cubase_bank_index] = state.track_values.copy()
                             state.cubase_bank_index -= 1
-                            state.track_values.clear()  # CLEAR GHOST TRACKS
+                            # Restore previous bank state
+                            state.track_values = state.bank_cache.get(state.cubase_bank_index, {})
                             state.bank_offset = 60 - displayable_channels
                             if state.bank_offset < 0: state.bank_offset = 0
                         else:
@@ -101,8 +104,11 @@ def create_dispatcher(state: BrokerState, daw_adapter: CubaseAdapter) -> Dispatc
                         # If the bank is completely full, we assume there might be more tracks in the next Cubase bank
                         if current_bank_real_tracks >= 60:
                             daw_adapter.send_nudge(1)
+                            # Cache current bank before switching
+                            state.bank_cache[state.cubase_bank_index] = state.track_values.copy()
                             state.cubase_bank_index += 1
-                            state.track_values.clear()  # CLEAR GHOST TRACKS
+                            # Restore next bank state (or empty if unvisited)
+                            state.track_values = state.bank_cache.get(state.cubase_bank_index, {})
                             state.bank_offset = 0
                         else:
                             state.bank_offset = max_offset # Hard clamp at the absolute end

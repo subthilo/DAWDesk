@@ -212,7 +212,7 @@ async def run():
     _meter_buffer = {}
 
     def _flush_meter_buffer(dt):
-        """Flush buffered meter values to connected RPis at 15fps."""
+        """Flush buffered meter values to connected RPis at 60fps."""
         nonlocal _meter_buffer
         if not _meter_buffer:
             return
@@ -223,7 +223,7 @@ async def run():
             if controller_id:
                 send_to_rpi(controller_id, channel_id, 0x07, val)
 
-    Clock.schedule_interval(_flush_meter_buffer, 1.0 / 15.0)
+    Clock.schedule_interval(_flush_meter_buffer, 1.0 / 60.0)
 
     # --- DELTA CACHE & OSC QUEUE FOR THROTTLING ---
     _sent_state_cache = {}  # { (cid, local_ch, cmd): value }
@@ -234,9 +234,9 @@ async def run():
         nonlocal _osc_queue
         if not _osc_queue:
             return
-        # Send up to 20 messages per frame (~1200 msg/sec at 60fps)
-        batch = _osc_queue[:20]
-        _osc_queue = _osc_queue[20:]
+        # Send up to 150 messages per frame (allows instant updates of a full 12-channel bank without dropping UDP packets)
+        batch = _osc_queue[:150]
+        _osc_queue = _osc_queue[150:]
         for send_func, cid, local_ch, cmd, val in batch:
             send_func(cid, local_ch, cmd, val)
             
@@ -259,9 +259,6 @@ async def run():
             for cid in state.registry.get_all().keys():
                 _send_if_changed(cid, track, cmd, float(val), send_to_rpi_transport)
             return
-
-        # Convert relative physical fader (0-59) to absolute track index
-        track = track + (state.cubase_bank_index * 60)
 
         # 1. Cache the value (skip meter – ephemeral, high-frequency)
         if cmd == 0x03:

@@ -5,11 +5,12 @@ class BrokerState:
     def __init__(self, broker_config: BrokerConfig, registry: ControllerRegistry):
         self.broker_config = broker_config
         self.registry = registry
-        self.bank_offset = 0  # Our "Nudge" offset within the current Cubase bank
-        self.cubase_bank_index = 0 # How many 60-track banks Cubase is currently shifted
+        self.bank_offset = 0  # Our "Nudge" offset
         self.track_values = {} # {track_index: {cmd: float_val}}
         self.transport_state = {0: 0.0, 1: 0.0, 2: 0.0} # {cmd_idx: float_val}
         self.on_routing_changed = None # Callback when offset changes
+        self.cubase_bank_index = 0
+        self.bank_cache = {} # {bank_index: {track_index: {cmd: val}}}
 
     def update_track_value(self, track: int, cmd: int, val: float):
         if track not in self.track_values:
@@ -62,8 +63,7 @@ class BrokerState:
                 # We found the controller, add its local offset
                 # local_channel is 1-indexed (1, 2, 3...)
                 # absolute_index is 0-indexed (0, 1, 2...)
-                bank_base = self.cubase_bank_index * 60
-                return absolute_index + (local_channel - 1) + self.bank_offset + bank_base
+                return absolute_index + (local_channel - 1) + self.bank_offset
             
             # Add the number of channels of the previous controller
             if cid in all_controllers:
@@ -79,8 +79,7 @@ class BrokerState:
         if daw_track_index < 0:
             return None, -1
             
-        bank_base = self.cubase_bank_index * 60
-        target_index = daw_track_index - self.bank_offset - bank_base
+        target_index = daw_track_index - self.bank_offset
         if target_index < 0:
             return None, -1
             

@@ -77,8 +77,8 @@ class DAWChannelStrip(Widget):
         self._pan_last_tap_time = 0
         
         self.bind(pos=self._trigger_rebuild, size=self._trigger_rebuild)
-        self.bind(track_name=self._update_dynamic, track_color=self._update_dynamic, value=self._update_dynamic, pan=self._update_dynamic)
-        self.bind(is_solo=self._update_dynamic, is_muted=self._update_dynamic)
+        self.bind(track_name=self._trigger_update_dynamic, track_color=self._trigger_update_dynamic, value=self._trigger_update_dynamic, pan=self._trigger_update_dynamic)
+        self.bind(is_solo=self._trigger_update_dynamic, is_muted=self._trigger_update_dynamic)
         self.bind(meter_value=self._update_meter)
 
     def _trigger_rebuild(self, *args):
@@ -274,7 +274,12 @@ class DAWChannelStrip(Widget):
             self._get_cached_text(f"{db_int / 10.0:.1f}", 12, bold=True)
         self._get_cached_text("-\u221e", 12, bold=True)
 
-    def _update_dynamic(self, *args):
+    def _trigger_update_dynamic(self, *args):
+        """Debounce updates so multiple property changes on the same frame only trigger one canvas redraw."""
+        Clock.unschedule(self._update_dynamic)
+        Clock.schedule_once(self._update_dynamic, 0)
+        
+    def _update_dynamic(self, dt=0):
         if not self._meter_rect:
             return
             
