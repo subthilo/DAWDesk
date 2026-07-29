@@ -29,6 +29,7 @@ if os.path.exists(_config_path):
 # -------------------------------------------------------------------------
 # KIVY-KONFIGURATION (muss VOR allen Kivy-Imports stehen)
 # -------------------------------------------------------------------------
+Config.set('kivy', 'keyboard_mode', 'systemanddock')
 Config.set('graphics', 'multisamples', '0')
 
 # RASPBERRY PI ZERO-LATENCY TOUCH HACK

@@ -1,0 +1,145 @@
+#:kivy 2.3.1
+
+<SettingsScreen>:
+    BoxLayout:
+        orientation: 'vertical'
+        padding: 40
+        spacing: 20
+        canvas.before:
+            Color:
+                rgba: 0.1, 0.12, 0.15, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+                
+        # Header
+        BoxLayout:
+            size_hint_y: None
+            height: 60
+            Label:
+                text: 'WLAN Einstellungen'
+                font_size: 32
+                bold: True
+                color: 0.8, 0.85, 0.9, 1
+                text_size: self.size
+                halign: 'left'
+                valign: 'middle'
+                
+            Button:
+                text: 'Zurück zum Mixer'
+                font_size: 20
+                size_hint_x: None
+                width: 200
+                background_color: 0.3, 0.3, 0.3, 1
+                on_release: root.close_settings()
+
+        # Content
+        BoxLayout:
+            orientation: 'vertical'
+            spacing: 20
+            
+            # Network Selection
+            BoxLayout:
+                size_hint_y: None
+                height: 50
+                spacing: 10
+                
+                Label:
+                    text: 'Gefundene Netzwerke:'
+                    size_hint_x: 0.3
+                    font_size: 20
+                    text_size: self.size
+                    halign: 'right'
+                    valign: 'middle'
+                    
+                Spinner:
+                    id: network_spinner
+                    text: 'Wähle ein Netzwerk'
+                    font_size: 20
+                    size_hint_x: 0.6
+                    on_text: root.on_network_select(self.text)
+                    
+                Button:
+                    text: 'Scan'
+                    size_hint_x: 0.1
+                    on_release: root.scan_wifi()
+                    disabled: root.is_scanning
+
+            # SSID Input (editable in case hidden)
+            BoxLayout:
+                size_hint_y: None
+                height: 50
+                spacing: 10
+                
+                Label:
+                    text: 'Netzwerk (SSID):'
+                    size_hint_x: 0.3
+                    font_size: 20
+                    text_size: self.size
+                    halign: 'right'
+                    valign: 'middle'
+                    
+                TextInput:
+                    id: ssid_input
+                    font_size: 24
+                    multiline: False
+                    size_hint_x: 0.7
+                    write_tab: False
+
+            # Password Input
+            BoxLayout:
+                size_hint_y: None
+                height: 50
+                spacing: 10
+                
+                Label:
+                    text: 'Passwort:'
+                    size_hint_x: 0.3
+                    font_size: 20
+                    text_size: self.size
+                    halign: 'right'
+                    valign: 'middle'
+                    
+                TextInput:
+                    id: password_input
+                    font_size: 24
+                    multiline: False
+                    password: not root.password_visible
+                    size_hint_x: 0.55
+                    write_tab: False
+                    
+                ToggleButton:
+                    text: 'Zeigen'
+                    size_hint_x: 0.15
+                    state: 'down' if root.password_visible else 'normal'
+                    on_state: root.password_visible = (self.state == 'down')
+
+            # Connect Button
+            BoxLayout:
+                size_hint_y: None
+                height: 60
+                spacing: 10
+                
+                Widget:
+                    size_hint_x: 0.3
+                    
+                Button:
+                    text: 'Verbinden'
+                    font_size: 24
+                    bold: True
+                    size_hint_x: 0.7
+                    background_color: 0.1, 0.6, 0.2, 1
+                    disabled: root.is_connecting
+                    on_release: root.connect()
+
+            # Status Label
+            Label:
+                text: root.status_text
+                font_size: 20
+                color: (1, 0.8, 0.2, 1) if (root.is_connecting or root.is_scanning) else (0.6, 0.8, 1, 1)
+                size_hint_y: None
+                height: 40
+
+            # Spacer to push everything up so keyboard doesn't overlap too much
+            Widget:
+                size_hint_y: 1

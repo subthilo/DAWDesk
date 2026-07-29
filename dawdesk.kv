@@ -7,6 +7,9 @@
 #:import MixerLayout widgets.mixer_layout.MixerLayout
 #:import Toolbar widgets.toolbar.Toolbar
 #:import ActionRow widgets.action_row.ActionRow
+#:import SettingsScreen widgets.settings_screen.SettingsScreen
+
+#:include widgets/settings_screen.kv
 
 DAWDeskRoot:
 
@@ -43,26 +46,3 @@ DAWDeskRoot:
         ActionRow:
             id: action_row
 
-<SettingsScreen@Screen>:
-    BoxLayout:
-        orientation: 'vertical'
-        padding: 20
-        spacing: 20
-        canvas.before:
-            Color:
-                rgba: 0.1, 0.1, 0.1, 1
-            Rectangle:
-                pos: self.pos
-                size: self.size
-                
-        Label:
-            text: 'Einstellungen (Coming Soon)'
-            font_size: 24
-            color: 1, 1, 1, 1
-            
-        Button:
-            text: 'Zurück zum Mixer'
-            font_size: 20
-            size_hint_y: None
-            height: 60
-            on_release: app.root.current = 'main'

@@ -3,6 +3,7 @@ import argparse
 import subprocess
 import os
 import sys
+import time
 
 def run_command(cmd, shell=False, check=True):
     print(f"==> Running: {cmd if isinstance(cmd, str) else ' '.join(cmd)}")
@@ -113,17 +114,81 @@ def configure_waveshare(rotation=None):
         except Exception as e:
             print(f"Error configuring rotation: {e}")
 
+def configure_network_stability(static_ip=None, gateway="192.168.1.1"):
+    """Fixes common Raspberry Pi WiFi issues that cause the Pi to disappear after reboot."""
+    print("\n--- Configuring Network Stability ---")
+    
+    # Find the active WiFi connection name
+    try:
+        result = subprocess.run(
+            ['nmcli', '-t', '-f', 'NAME,TYPE', 'connection', 'show', '--active'],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        wifi_conn = None
+        for line in result.stdout.strip().split('\n'):
+            if ':802-11-wireless' in line:
+                wifi_conn = line.split(':')[0]
+                break
+        
+        if not wifi_conn:
+            print("  WARNING: No active WiFi connection found. Skipping network config.")
+            print("  (This is normal on first deploy via Ethernet. Run deploy again after WiFi is set up.)")
+            return
+        
+        print(f"  Active WiFi connection: '{wifi_conn}'")
+        
+        # 1. Disable MAC address randomization (fixes router address reservation)
+        print("  [1/3] Disabling MAC address randomization...")
+        run_command(['sudo', 'nmcli', 'connection', 'modify', wifi_conn,
+                     'wifi.cloned-mac-address', 'permanent'])
+        run_command(['sudo', 'nmcli', 'connection', 'modify', wifi_conn,
+                     '802-11-wireless.mac-address-randomization', 'never'])
+        
+        # 2. Disable WiFi power management (fixes random disconnects)
+        print("  [2/3] Disabling WiFi power management...")
+        run_command(['sudo', 'nmcli', 'connection', 'modify', wifi_conn,
+                     'wifi.powersave', '2'])
+        
+        # 3. Optional: Set static IP
+        if static_ip:
+            print(f"  [3/3] Setting static IP: {static_ip} (Gateway: {gateway})...")
+            # Ensure CIDR notation
+            if '/' not in static_ip:
+                static_ip = f"{static_ip}/24"
+            run_command(['sudo', 'nmcli', 'connection', 'modify', wifi_conn,
+                         'ipv4.method', 'manual',
+                         'ipv4.addresses', static_ip,
+                         'ipv4.gateway', gateway,
+                         'ipv4.dns', gateway])
+            print(f"  Static IP configured. Pi will use {static_ip} after next reboot.")
+        else:
+            print("  [3/3] No static IP requested. Keeping DHCP.")
+        
+        # Apply changes
+        print("  Applying network changes...")
+        run_command(['sudo', 'nmcli', 'connection', 'up', wifi_conn], check=False)
+        print("  ✓ Network stability configured.")
+        
+    except FileNotFoundError:
+        print("  WARNING: nmcli not found. Skipping network config (older OS without NetworkManager?).")
+    except Exception as e:
+        print(f"  WARNING: Network config failed: {e}")
+        print("  (Non-fatal – the Pi will still work, but may have connectivity issues after reboot.)")
+
+
 def setup_autostart(project_dir):
     print("\n--- Configuring Autostart (systemd) ---")
     current_user = os.environ.get("USER", "pi")
     service_content = f"""[Unit]
 Description=DAWDesk Kivy App
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 User={current_user}
 WorkingDirectory={project_dir}
 Environment="PATH={project_dir}/.venv/bin:/usr/bin:/bin"
+ExecStartPre=/bin/sleep 3
 ExecStart={project_dir}/.venv/bin/python main.py
 Restart=always
 RestartSec=3
@@ -153,6 +218,11 @@ if __name__ == "__main__":
                         help="Eindeutiger Name dieses Controllers (z.B. 'rpi-studio-1')")
     parser.add_argument("--channels", type=int, default=12,
                         help="Anzahl der Kanäle auf diesem Controller. Default: 12.")
+    parser.add_argument("--static-ip", type=str, default=None,
+                        help="Statische IP für den Pi (z.B. '192.168.1.157'). "
+                             "Verhindert IP-Wechsel nach Reboot.")
+    parser.add_argument("--gateway", type=str, default="192.168.1.1",
+                        help="Gateway/DNS-Server (Default: 192.168.1.1)")
     
     args = parser.parse_args()
     
@@ -186,6 +256,9 @@ if __name__ == "__main__":
         with open(config_json_path, 'w') as _f:
             _json.dump(config_data, _f, indent=2)
         print(f"  Saved controller_id='{args.controller_id}', channels={args.channels} to {config_json_path}")
+
+    # Network stability (MAC fix, power management, optional static IP)
+    configure_network_stability(static_ip=args.static_ip, gateway=args.gateway)
 
     setup_autostart(project_dir)
         

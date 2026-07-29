@@ -1,6 +1,8 @@
 {
   "controller_order": [
+    "rpi-studio-2",
     "rpi-studio-1",
-    "rpi-studio-2"
+    "Desk-1",
+    "Desk-2"
   ]
 }

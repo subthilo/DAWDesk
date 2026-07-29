@@ -63,6 +63,7 @@ class DAWChannelStrip(Widget):
         
         self._name_rect = None
         self._color_fader = None
+        self._pan_active_color = None
         self._mute_overlay = None
         self._mute_overlay_color = None
         
@@ -202,7 +203,7 @@ class DAWChannelStrip(Widget):
             Rectangle(pos=(meter_x, geo['fader_y'] + 10), size=(track_w, geo['fader_h'] - 20))
         with self.canvas:
             # --- 4. PAN AKTIV & TEXT ---
-            Color(*self.c_pan_active)
+            self._pan_active_color = Color(*self.c_pan_active)
             self._pan_line = SmoothLine(ellipse=(rx, ry, d, d, 0, 0, 128), width=lw, cap='none')
             self._pan_active_cap1 = Ellipse(pos=(0, 0), size=(0, 0), segments=64)
             self._pan_active_cap2 = Ellipse(pos=(0, 0), size=(0, 0), segments=64)
@@ -315,8 +316,11 @@ class DAWChannelStrip(Widget):
         mapped_pan = self.pan
         
         if mapped_pan <= -900:
-            self._pan_line.ellipse = (0, 0, 0, 0, 0, 0, 32)
+            self._pan_active_color.a = 0
+            self._pan_line.ellipse = (0, 0, 0, 0, 0, 0, 2)
+            self._pan_active_cap1.pos = (-100, -100)
             self._pan_active_cap1.size = (0, 0)
+            self._pan_active_cap2.pos = (-100, -100)
             self._pan_active_cap2.size = (0, 0)
             self._pan_value_rect.size = (0, 0)
         else:
@@ -330,6 +334,7 @@ class DAWChannelStrip(Widget):
                 if rounded_val > 0: val_text = f"R{rounded_val}"
                 
             if rounded_val > 0:
+                self._pan_active_color.rgba = self.c_pan_active
                 total_active_range = 360.0 - self.pan_opening_angle
                 target_angle = mapped_pan * (total_active_range / 2.0)
                 
@@ -353,8 +358,11 @@ class DAWChannelStrip(Widget):
                 self._pan_active_cap2.pos = (ax - lw, ay - lw)
                 self._pan_active_cap2.size = (lw*2, lw*2)
             else:
-                self._pan_line.ellipse = (rx, ry, d, d, 359.0, 361.0, 32)
+                self._pan_active_color.a = 0
+                self._pan_line.ellipse = (rx, ry, d, d, 0, 0, 2)
+                self._pan_active_cap1.pos = (-100, -100)
                 self._pan_active_cap1.size = (0, 0)
+                self._pan_active_cap2.pos = (-100, -100)
                 self._pan_active_cap2.size = (0, 0)
                 
             tex = self._get_cached_text(val_text, self.pan_font_size, bold=True)

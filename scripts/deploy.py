@@ -29,7 +29,7 @@ def create_tarball(source_dir, output_filename):
         tar.add(source_dir, arcname=os.path.basename(source_dir), filter=exclude_filter)
     print(f"Created {output_filename}")
 
-def deploy(host, user, password, port, waveshare, rotate, controller_id, channels):
+def deploy(host, user, password, port, waveshare, rotate, controller_id, channels, static_ip=None, gateway="192.168.1.1"):
     paramiko, scp_module = ensure_dependencies()
     from scp import SCPClient
     
@@ -75,9 +75,11 @@ def deploy(host, user, password, port, waveshare, rotate, controller_id, channel
         rotate_flag = f"--rotate {rotate}" if rotate is not None else ""
         controller_id_flag = f"--controller-id {controller_id}" if controller_id else ""
         channels_flag = f"--channels {channels}" if channels else ""
+        static_ip_flag = f"--static-ip {static_ip}" if static_ip else ""
+        gateway_flag = f"--gateway {gateway}" if gateway else ""
         
         # Note: We use python3 explicitly
-        cmd = f"cd {remote_project_path} && chmod +x scripts/setup_rpi.py && python3 scripts/setup_rpi.py {waveshare_flag} {rotate_flag} {controller_id_flag} {channels_flag}"
+        cmd = f"cd {remote_project_path} && chmod +x scripts/setup_rpi.py && python3 scripts/setup_rpi.py {waveshare_flag} {rotate_flag} {controller_id_flag} {channels_flag} {static_ip_flag} {gateway_flag}"
         
         # get_pty=True provides unbuffered output and allows sudo to prompt for password if needed
         # (Though we're running it with sudo inside the script which might block if it asks for a password on the PTY, 
@@ -119,8 +121,14 @@ if __name__ == "__main__":
                              "Fallback: Hostname des RPi.")
     parser.add_argument("--channels", type=int, default=12,
                         help="Anzahl der Kanäle auf diesem Controller. Default: 12.")
+    parser.add_argument("--static-ip", type=str, default=None,
+                        help="Statische IP für den Pi (z.B. '192.168.1.157'). "
+                             "Verhindert IP-Wechsel nach Reboot.")
+    parser.add_argument("--gateway", type=str, default="192.168.1.1",
+                        help="Gateway/DNS-Server (Default: 192.168.1.1)")
 
     args = parser.parse_args()
 
     deploy(args.host, args.user, args.password, args.port,
-           args.waveshare, args.rotate, args.controller_id, args.channels)
+           args.waveshare, args.rotate, args.controller_id, args.channels,
+           args.static_ip, args.gateway)
