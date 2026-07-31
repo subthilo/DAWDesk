@@ -29,7 +29,7 @@ class DAWChannelStrip(Widget):
     pan_opening_angle = NumericProperty(60.0)
     c_pan_inactive = ColorProperty((0.3, 0.3, 0.3, 1))
     c_pan_active = ColorProperty((0.0, 0.9, 0.9, 1))
-    pan_font_size = NumericProperty(20)
+    pan_font_size = NumericProperty(12)
 
     # --- Interner State ---
     _ui_ready = BooleanProperty(False)
@@ -93,7 +93,7 @@ class DAWChannelStrip(Widget):
         
         pad = min(10, w * 0.1)
         lbl_h = 40
-        pan_h = w  # Pan-Bereich ist quadratisch oben
+        pan_h = 32  # Kompakter Pan-Bereich oben (spart Höhe für den Fader)
         fader_h = h - lbl_h - pan_h
         
         return {
@@ -165,18 +165,18 @@ class DAWChannelStrip(Widget):
             Color(*self.c_text)
             self._name_rect = Rectangle(pos=(0,0), size=(0,0))
 
-            # --- 2. PAN HINTERGRUND (Horizontaler Balken) ---
+            # --- 2. PAN HINTERGRUND (Dünne Schiene) ---
             if self.pan > -900:
                 half_w = geo['w'] * 0.38
-                cy_bar = geo['pan_y'] + 14
+                cy_bar = geo['pan_y'] + 8
                 x_left = geo['center_x'] - half_w
                 x_right = geo['center_x'] + half_w
                 
-                # Inaktive Schiene
+                # Inaktive Schiene (1px Strich)
                 Color(*self.c_pan_inactive)
-                Line(points=[x_left, cy_bar, x_right, cy_bar], width=3.0, cap='round')
+                Line(points=[x_left, cy_bar, x_right, cy_bar], width=1.0)
                 # Center Marker
-                Line(points=[geo['center_x'], cy_bar - 4, geo['center_x'], cy_bar + 4], width=2.0)
+                Line(points=[geo['center_x'], cy_bar - 3, geo['center_x'], cy_bar + 3], width=1.0)
 
             # --- 3. FADER HINTERGRUND & TICKS ---
             track_w = 12
@@ -187,7 +187,7 @@ class DAWChannelStrip(Widget):
         with self.canvas:
             # --- 4. PAN AKTIV & TEXT ---
             self._pan_active_color = Color(*self.c_pan_active)
-            self._pan_line = Line(points=[], width=4.0, cap='round')
+            self._pan_line = Line(points=[], width=1.5, cap='none')
             self._pan_active_cap1 = Ellipse(pos=(0, 0), size=(0, 0), segments=32)
             
             Color(*self.c_text)
@@ -299,7 +299,7 @@ class DAWChannelStrip(Widget):
             self._pan_value_rect.size = (0, 0)
         else:
             half_w = geo['w'] * 0.38
-            cy_bar = geo['pan_y'] + 14
+            cy_bar = geo['pan_y'] + 8
             cx = geo['center_x']
             
             rounded_val = 0
@@ -315,21 +315,17 @@ class DAWChannelStrip(Widget):
                 self._pan_active_color.rgba = self.c_pan_active
                 target_x = cx + mapped_pan * half_w
                 self._pan_line.points = [cx, cy_bar, target_x, cy_bar]
-                
-                # Active Cap (Kugel am Ende)
-                cap_r = 4.0
-                self._pan_active_cap1.pos = (target_x - cap_r, cy_bar - cap_r)
-                self._pan_active_cap1.size = (cap_r * 2, cap_r * 2)
+                self._pan_active_cap1.size = (0, 0)
             else:
                 # Center (0.0): vertikaler Center-Tick
                 self._pan_active_color.rgba = self.c_pan_active
-                self._pan_line.points = [cx, cy_bar - 4, cx, cy_bar + 4]
+                self._pan_line.points = [cx, cy_bar - 3, cx, cy_bar + 3]
                 self._pan_active_cap1.size = (0, 0)
                 
             tex = self._get_cached_text(val_text, self.pan_font_size, bold=True)
             self._pan_value_rect.texture = tex
             self._pan_value_rect.size = tex.size
-            self._pan_value_rect.pos = (cx - tex.width/2, geo['pan_y'] + geo['pan_h'] - tex.height - 2)
+            self._pan_value_rect.pos = (cx - tex.width/2, geo['pan_y'] + geo['pan_h'] - tex.height - 1)
 
         # 2. Update Fader Kappe (C-Form)
         fy = self._db_to_y(self.value, geo)
