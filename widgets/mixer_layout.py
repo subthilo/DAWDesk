@@ -20,27 +20,20 @@ class MixerLayout(BoxLayout):
         if not self.collide_point(*touch.pos):
             return super().on_touch_down(touch)
 
-        # 1. Prüfen, ob die Berührung in einem zentralen Fader-Sensorstreifen liegt
-        is_central_fader_touch = False
-        is_pan_or_label_touch = False
+        # 1. Prüfen, ob die Berührung im zentralen Sensorstreifen eines Faders liegt
+        is_central_strip_touch = False
         
-        # Kinder durchsuchen (DAWChannelStrips)
         for child in self.children:
             if hasattr(child, '_get_geometry') and child.collide_point(*touch.pos):
                 geo = child._get_geometry()
-                if geo['fader_y'] <= touch.y < geo['pan_y']:
+                if touch.y >= geo['fader_y']:
                     fader_tol = min(30.0, geo['w'] * 0.45)
                     if abs(touch.x - geo['center_x']) <= fader_tol:
-                        is_central_fader_touch = True
-                else:
-                    is_pan_or_label_touch = True
+                        is_central_strip_touch = True
                 break
 
-        # Edge Start (Rand des Bildschirms)
-        is_edge_start = (touch.x < 40 or touch.x > self.width - 40)
-
-        # Wenn am Rand gestartet ODER im Faderbereich außerhalb des Sensorstreifens:
-        if is_edge_start or (not is_central_fader_touch and not is_pan_or_label_touch):
+        # Berührungen außerhalb des zentralen Streifens (zwischen zwei Fadern oder am Bildschirmrand) aktivieren Nudging!
+        if not is_central_strip_touch:
             touch.grab(self)
             touch.ud['mode'] = 'swipe_nudge'
             ch_idx = self._get_channel_index_at_x(touch.x)

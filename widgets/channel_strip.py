@@ -165,35 +165,18 @@ class DAWChannelStrip(Widget):
             Color(*self.c_text)
             self._name_rect = Rectangle(pos=(0,0), size=(0,0))
 
-            # --- 2. PAN HINTERGRUND ---
+            # --- 2. PAN HINTERGRUND (Horizontaler Balken) ---
             if self.pan > -900:
-                # Inaktiver Ring
-                lw = self.pan_ring_thickness
-                d = geo['pan_h'] * 0.8
-                rx = geo['center_x'] - d / 2
-                ry = geo['pan_y'] + (geo['pan_h'] - d) / 2
+                half_w = geo['w'] * 0.38
+                cy_bar = geo['pan_y'] + 14
+                x_left = geo['center_x'] - half_w
+                x_right = geo['center_x'] + half_w
                 
+                # Inaktive Schiene
                 Color(*self.c_pan_inactive)
-                half_open = self.pan_opening_angle / 2.0
-                a_start = 180.0 + half_open
-                a_end = 540.0 - half_open
-                SmoothLine(ellipse=(rx, ry, d, d, a_start, a_end, 128), width=lw, cap='none')
-                
-                # Manuelle runde Kappen für den inaktiven Ring
-                cx_pan = geo['center_x']
-                cy_pan = geo['pan_y'] + geo['pan_h']/2.0
-                r_pan = d / 2.0
-                
-                x1, y1 = self._get_kivy_arc_point(cx_pan, cy_pan, r_pan, a_start)
-                Ellipse(pos=(x1 - lw, y1 - lw), size=(lw*2, lw*2), segments=64)
-                
-                x2, y2 = self._get_kivy_arc_point(cx_pan, cy_pan, r_pan, a_end)
-                Ellipse(pos=(x2 - lw, y2 - lw), size=(lw*2, lw*2), segments=64)
-                
-                # Center Dot
-                dot_d = lw * 2.0
-                SmoothLine(ellipse=(geo['center_x'] - dot_d/2, geo['pan_y'] + geo['pan_h']/2 - dot_d/2, dot_d, dot_d, 0, 360, 64), width=dot_d/2)
-
+                Line(points=[x_left, cy_bar, x_right, cy_bar], width=3.0, cap='round')
+                # Center Marker
+                Line(points=[geo['center_x'], cy_bar - 4, geo['center_x'], cy_bar + 4], width=2.0)
 
             # --- 3. FADER HINTERGRUND & TICKS ---
             track_w = 12
@@ -204,9 +187,8 @@ class DAWChannelStrip(Widget):
         with self.canvas:
             # --- 4. PAN AKTIV & TEXT ---
             self._pan_active_color = Color(*self.c_pan_active)
-            self._pan_line = SmoothLine(ellipse=(rx, ry, d, d, 0, 0, 128), width=lw, cap='none')
-            self._pan_active_cap1 = Ellipse(pos=(0, 0), size=(0, 0), segments=64)
-            self._pan_active_cap2 = Ellipse(pos=(0, 0), size=(0, 0), segments=64)
+            self._pan_line = Line(points=[], width=4.0, cap='round')
+            self._pan_active_cap1 = Ellipse(pos=(0, 0), size=(0, 0), segments=32)
             
             Color(*self.c_text)
             self._pan_value_rect = Rectangle(pos=(0,0), size=(0,0))
@@ -307,23 +289,19 @@ class DAWChannelStrip(Widget):
                 self._mute_overlay_color.rgba = (0, 0, 0, 0)
                 self._mute_overlay.size = (0, 0)
         
-        # 1. Update Pan
-        d = geo['pan_h'] * 0.8
-        rx = geo['center_x'] - d / 2
-        ry = geo['pan_y'] + (geo['pan_h'] - d) / 2
-        
-        # Pan ist bei uns im Bereich -1.0 bis 1.0 intern
+        # 1. Update Pan (Horizontaler Balken)
         mapped_pan = self.pan
         
         if mapped_pan <= -900:
             self._pan_active_color.a = 0
-            self._pan_line.ellipse = (0, 0, 0, 0, 0, 0, 2)
-            self._pan_active_cap1.pos = (-100, -100)
+            self._pan_line.points = []
             self._pan_active_cap1.size = (0, 0)
-            self._pan_active_cap2.pos = (-100, -100)
-            self._pan_active_cap2.size = (0, 0)
             self._pan_value_rect.size = (0, 0)
         else:
+            half_w = geo['w'] * 0.38
+            cy_bar = geo['pan_y'] + 14
+            cx = geo['center_x']
+            
             rounded_val = 0
             val_text = "C"
             if mapped_pan < 0:
@@ -335,40 +313,23 @@ class DAWChannelStrip(Widget):
                 
             if rounded_val > 0:
                 self._pan_active_color.rgba = self.c_pan_active
-                total_active_range = 360.0 - self.pan_opening_angle
-                target_angle = mapped_pan * (total_active_range / 2.0)
+                target_x = cx + mapped_pan * half_w
+                self._pan_line.points = [cx, cy_bar, target_x, cy_bar]
                 
-                R = d / 2.0
-                cx = geo['center_x']
-                cy = geo['pan_y'] + geo['pan_h']/2.0
-                lw = self.pan_ring_thickness
-                
-                # Center cap at 0 degrees
-                cx0, cy0 = self._get_kivy_arc_point(cx, cy, R, 0.0)
-                self._pan_active_cap1.pos = (cx0 - lw, cy0 - lw)
-                self._pan_active_cap1.size = (lw*2, lw*2)
-                
-                if mapped_pan < 0:
-                    self._pan_line.ellipse = (rx, ry, d, d, 360.0 + target_angle, 360.0, 128)
-                    ax, ay = self._get_kivy_arc_point(cx, cy, R, 360.0 + target_angle)
-                else:
-                    self._pan_line.ellipse = (rx, ry, d, d, 0.0, target_angle, 128)
-                    ax, ay = self._get_kivy_arc_point(cx, cy, R, target_angle)
-                    
-                self._pan_active_cap2.pos = (ax - lw, ay - lw)
-                self._pan_active_cap2.size = (lw*2, lw*2)
+                # Active Cap (Kugel am Ende)
+                cap_r = 4.0
+                self._pan_active_cap1.pos = (target_x - cap_r, cy_bar - cap_r)
+                self._pan_active_cap1.size = (cap_r * 2, cap_r * 2)
             else:
-                self._pan_active_color.a = 0
-                self._pan_line.ellipse = (rx, ry, d, d, 0, 0, 2)
-                self._pan_active_cap1.pos = (-100, -100)
+                # Center (0.0): vertikaler Center-Tick
+                self._pan_active_color.rgba = self.c_pan_active
+                self._pan_line.points = [cx, cy_bar - 4, cx, cy_bar + 4]
                 self._pan_active_cap1.size = (0, 0)
-                self._pan_active_cap2.pos = (-100, -100)
-                self._pan_active_cap2.size = (0, 0)
                 
             tex = self._get_cached_text(val_text, self.pan_font_size, bold=True)
             self._pan_value_rect.texture = tex
             self._pan_value_rect.size = tex.size
-            self._pan_value_rect.pos = (geo['center_x'] - tex.width/2, geo['pan_y'] + geo['pan_h']/2 - tex.height/2)
+            self._pan_value_rect.pos = (cx - tex.width/2, geo['pan_y'] + geo['pan_h'] - tex.height - 2)
 
         # 2. Update Fader Kappe (C-Form)
         fy = self._db_to_y(self.value, geo)
@@ -457,17 +418,27 @@ class DAWChannelStrip(Widget):
             self._label_long_press_event = Clock.schedule_once(self._on_label_long_press, 0.5)
             return True
             
-        # --- PAN AREA ---
-        if touch.y >= geo['pan_y']:
-            touch.grab(self)
-            self.is_touched = True
-            self.is_pan_touched = True
-            touch.ud['active_control'] = 'pan'
-            touch.ud['start_y'] = touch.y
-            touch.ud['start_pan'] = self.pan
-            
-            # Double-tap detection (Reset Pan to Center)
-            now = time.monotonic()
+        # --- CHANNEL AREA (Dynamic Direction Detection: Fader vs Pan on Central Strip) ---
+        fader_tol = min(25.0, geo['w'] * 0.40)
+        if abs(touch.x - geo['center_x']) > fader_tol:
+            return super().on_touch_down(touch)  # Pass to MixerLayout for Nudging!
+
+        touch.grab(self)
+        self.is_touched = True
+        touch.ud['active_control'] = 'pending'
+        touch.ud['touch_start_x'] = touch.x
+        touch.ud['touch_start_y'] = touch.y
+        touch.ud['start_pan'] = self.pan
+        touch.ud['start_val'] = self.value
+        self._touch_moved = False
+        fy = self._db_to_y(self.value, geo)
+        touch.ud['offset_y'] = touch.y - fy
+
+        now = time.monotonic()
+        is_pan_zone = touch.y >= geo['pan_y']
+
+        if is_pan_zone:
+            # Double-tap in Pan area -> Reset Pan to Center
             if now - self._pan_last_tap_time < 0.35:
                 self.pan = 0.0
                 self._send_pan_osc()
@@ -476,30 +447,9 @@ class DAWChannelStrip(Widget):
                 self.is_touched = False
                 return True
             self._pan_last_tap_time = now
-            
-            return True
-            
-        # --- FADER AREA ---
-        if touch.y >= geo['fader_y'] and touch.y < geo['pan_y']:
-            # Restrict fader interaction STRICTLY to the central vertical sensor strip
-            fader_tol = min(30.0, geo['w'] * 0.45)
-            if abs(touch.x - geo['center_x']) > fader_tol:
-                return super().on_touch_down(touch)
-
-            touch.grab(self)
-            self.is_touched = True
-            touch.ud['active_control'] = 'fader'
-            touch.ud['touch_start_x'] = touch.x
-            touch.ud['touch_start_y'] = touch.y
-            self._touch_moved = False
-            fy = self._db_to_y(self.value, geo)
-            touch.ud['offset_y'] = touch.y - fy
-            
-            # Check if touch is vertically on the fader cap (fh = 40, so +/- 20, we use 25 for tolerance)
+        else:
+            # Fader area taps
             on_cap = abs(touch.y - fy) <= 25
-            
-            now = time.monotonic()
-            
             if on_cap:
                 # Cap double-tap -> Reset to 0 dB
                 if now - self._last_tap_time < 0.35 and getattr(self, '_last_tap_was_cap', False):
@@ -515,45 +465,55 @@ class DAWChannelStrip(Widget):
                 # Non-cap double-tap -> Solo
                 if now - self._last_tap_time < 0.35 and not getattr(self, '_last_tap_was_cap', False):
                     self._send_solo_osc()
-                    self._last_tap_time = 0  # Reset to prevent triple-tap
+                    self._last_tap_time = 0
                     touch.ungrab(self)
                     self.is_touched = False
                     return True
                 self._last_tap_time = now
                 self._last_tap_was_cap = False
-            
+
             # Long-press detection (Mute) – schedule check
             self._long_press_event = Clock.schedule_once(self._on_long_press, 0.5)
-            return True
-            
-        return super().on_touch_down(touch)
+
+        return True
 
     def on_touch_move(self, touch):
         if touch.grab_current is self:
             geo = self._get_geometry()
             ctrl = touch.ud.get('active_control')
-            
+
+            dx = touch.x - touch.ud.get('touch_start_x', touch.x)
+            dy = touch.y - touch.ud.get('touch_start_y', touch.y)
+            dist_sq = dx * dx + dy * dy
+
+            # Direction Detection: lock into 'fader' (vertical) or 'pan' (horizontal) after 7px
+            if ctrl == 'pending':
+                if dist_sq > 49:  # > 7 pixels
+                    self._touch_moved = True
+                    if self._long_press_event:
+                        self._long_press_event.cancel()
+                        self._long_press_event = None
+
+                    if abs(dy) > abs(dx):
+                        ctrl = 'fader'
+                        touch.ud['active_control'] = 'fader'
+                    else:
+                        ctrl = 'pan'
+                        touch.ud['active_control'] = 'pan'
+                        self.is_pan_touched = True
+                else:
+                    return True
+
             if ctrl == 'pan':
-                dy = touch.y - touch.ud.get('start_y', touch.y)
-                delta_val = (dy / 150.0) * 2.0
+                drag_range = geo['w'] * 0.8
+                delta_val = (dx / drag_range) * 2.0
                 new_val = touch.ud.get('start_pan', 0.0) + delta_val
                 self.pan = max(-1.0, min(1.0, new_val))
                 self._send_pan_osc()
             elif ctrl == 'fader':
-                # Check if finger moved beyond threshold (10px) before treating as drag
-                dx = touch.x - touch.ud.get('touch_start_x', touch.x)
-                dy = touch.y - touch.ud.get('touch_start_y', touch.y)
-                dist = (dx*dx + dy*dy) ** 0.5
-                
-                if dist > 10:
-                    self._touch_moved = True
-                    # Cancel long-press once real movement detected
-                    if self._long_press_event:
-                        self._long_press_event.cancel()
-                        self._long_press_event = None
-                    target_y = touch.y - touch.ud.get('offset_y', 0)
-                    self.value = self._y_to_db(target_y, geo)
-                    self._send_volume_osc()
+                target_y = touch.y - touch.ud.get('offset_y', 0)
+                self.value = self._y_to_db(target_y, geo)
+                self._send_volume_osc()
             return True
         return super().on_touch_move(touch)
 
