@@ -481,6 +481,11 @@ class DAWChannelStrip(Widget):
             
         # --- FADER AREA ---
         if touch.y >= geo['fader_y'] and touch.y < geo['pan_y']:
+            # Restrict fader interaction STRICTLY to the central vertical sensor strip
+            fader_tol = min(30.0, geo['w'] * 0.45)
+            if abs(touch.x - geo['center_x']) > fader_tol:
+                return super().on_touch_down(touch)
+
             touch.grab(self)
             self.is_touched = True
             touch.ud['active_control'] = 'fader'
