@@ -70,6 +70,10 @@ class MixerLayout(BoxLayout):
                 self._highlight_color.rgba = (0.0, 0.9, 0.9, 0.25)
                 self._highlight_rect.pos = strip.pos
                 self._highlight_rect.size = strip.size
+            
+            # Send select OSC so the selection follows the nudge highlight
+            if hasattr(strip, '_send_select_osc'):
+                strip._send_select_osc()
 
             if self._highlight_event:
                 self._highlight_event.cancel()

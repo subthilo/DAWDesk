@@ -142,6 +142,13 @@ class CubaseAdapter:
             self._fire_callback(0x06, track_index, float_val)
             return
 
+        # Select (Note) – Note 0-119 on Channel 12-13
+        if msg.type in ('note_on', 'note_off') and msg.channel in (12, 13) and 0 <= msg.note <= 119:
+            track_index = ((msg.channel - 12) * 120) + msg.note
+            float_val = 1.0 if (msg.type == 'note_on' and msg.velocity > 0) else 0.0
+            self._fire_callback(0x09, track_index, float_val) # We'll use 0x09 for select
+            return
+
         if msg.type == 'control_change':
             
             # Handle DAWDesk CC-ASCII Stream (Channels 15-16 -> msg.channel in (14, 15))
@@ -281,6 +288,15 @@ class CubaseAdapter:
         if not (0 <= track_index < 240): return
         vel = 127 if value >= 0.5 else 0
         channel = 10 + (track_index // 120)
+        note = track_index % 120
+        self.outport.send(mido.Message('note_on', channel=channel, note=note, velocity=vel))
+        
+    def set_select(self, track_index: int, value: float):
+        """Set select for a track. value >= 0.5 = on, < 0.5 = off."""
+        if not self.outport: return
+        if not (0 <= track_index < 240): return
+        vel = 127 if value >= 0.5 else 0
+        channel = 12 + (track_index // 120)
         note = track_index % 120
         self.outport.send(mido.Message('note_on', channel=channel, note=note, velocity=vel))
         

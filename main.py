@@ -235,6 +235,10 @@ class DAWDeskApp(App):
         if channel_id not in self._osc_state_buffer: self._osc_state_buffer[channel_id] = {}
         self._osc_state_buffer[channel_id]['mute'] = value
 
+    def update_select_from_osc(self, channel_id: int, value: float):
+        if channel_id not in self._osc_state_buffer: self._osc_state_buffer[channel_id] = {}
+        self._osc_state_buffer[channel_id]['select'] = value
+
     def update_meter_from_osc(self, channel_id: int, value: float):
         """Called from OSC thread – buffer value and timestamp."""
         import time
@@ -278,6 +282,9 @@ class DAWDeskApp(App):
                 
             if 'mute' in state:
                 strip.is_muted = (state['mute'] >= 0.5)
+
+            if 'select' in state:
+                strip.is_selected = (state['select'] >= 0.5)
                 
             if not strip.is_touched:
                 if 'volume' in state:
@@ -387,6 +394,14 @@ async def run_app():
         except Exception:
             pass
 
+    def handle_select(address, *args):
+        try:
+            ch = int(address.split('/')[3])
+            val = float(args[0])
+            app.update_select_from_osc(ch, val)
+        except Exception:
+            pass
+
     def handle_meter(address, *args):
         try:
             ch = int(address.split('/')[3])
@@ -412,6 +427,7 @@ async def run_app():
     dispatcher.map('/ui/fader/*/color', handle_color)
     dispatcher.map('/ui/fader/*/solo', handle_solo)
     dispatcher.map('/ui/fader/*/mute', handle_mute)
+    dispatcher.map('/ui/fader/*/select', handle_select)
     dispatcher.map('/ui/fader/*/meter', handle_meter)
     dispatcher.map('/ui/*/transport/*', handle_transport)
     

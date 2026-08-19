@@ -19,6 +19,7 @@ var panElements = [];
 var soloElements = [];
 var muteElements = [];
 var meterElements = [];
+var selectElements = [];
 var labelElements = [];
 var lastTitle = [];   // Cache: last sent title per channel
 
@@ -87,6 +88,16 @@ for (var i = 0; i < NUM_CHANNELS; ++i) {
             .setOutputPort(midiOutput)
             .bindToControlChange(meterCh, meterCC);
         meterElements.push(meter);
+
+        // Select = Base Ch 12. Uses Ch 12 and 13. Note 0..119
+        var selectBtn = deviceSurface.makeButton(index * 2, 8, 2, 2);
+        var selectCh = 12 + Math.floor(index / 120);
+        var selectNote = index % 120;
+        selectBtn.mSurfaceValue.mMidiBinding
+            .setInputPort(midiInput)
+            .setOutputPort(midiOutput)
+            .bindToNote(selectCh, selectNote);
+        selectElements.push(selectBtn);
             
         // We do NOT bind MIDI to the label. We just need it to exist to receive Text.
     })(i);
@@ -148,6 +159,9 @@ for (var i = 0; i < NUM_CHANNELS; ++i) {
         
         // Bind Mute
         page.makeValueBinding(muteElements[index].mSurfaceValue, channelBankItem.mValue.mMute);
+        
+        // Bind Select
+        page.makeValueBinding(selectElements[index].mSurfaceValue, channelBankItem.mValue.mSelected);
         
         // Bind VU Meter
         page.makeValueBinding(meterElements[index].mSurfaceValue, channelBankItem.mValue.mVUMeter);

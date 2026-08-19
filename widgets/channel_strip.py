@@ -38,9 +38,11 @@ class DAWChannelStrip(Widget):
     is_solo = BooleanProperty(False)
     is_muted = BooleanProperty(False)
     is_pan_touched = BooleanProperty(False)
+    is_selected = BooleanProperty(False)
 
     # --- FADER PROPERTIES ---
     c_bg = ColorProperty((0.08, 0.12, 0.18, 1))
+    c_bg_selected = ColorProperty((0.18, 0.25, 0.35, 1)) # Hellerer Hintergrund für selektierten Kanal
     c_track = ColorProperty((0.04, 0.06, 0.10, 1))
     track_color = ColorProperty((0.55, 0.62, 0.68, 1)) # Default fader cap / track color
     c_meter = ColorProperty((0.0, 0.9, 0.9, 0.8))
@@ -79,7 +81,7 @@ class DAWChannelStrip(Widget):
         
         self.bind(pos=self._trigger_rebuild, size=self._trigger_rebuild)
         self.bind(track_name=self._trigger_update_dynamic, track_color=self._trigger_update_dynamic, value=self._trigger_update_dynamic, pan=self._trigger_update_dynamic)
-        self.bind(is_solo=self._trigger_update_dynamic, is_muted=self._trigger_update_dynamic)
+        self.bind(is_solo=self._trigger_update_dynamic, is_muted=self._trigger_update_dynamic, is_selected=self._trigger_update_dynamic)
         self.bind(meter_value=self._update_meter)
 
     def _trigger_rebuild(self, *args):
@@ -151,7 +153,7 @@ class DAWChannelStrip(Widget):
         self.canvas.after.clear()
         
         with self.canvas.before:
-            Color(*self.c_bg)
+            self._bg_color = Color(*self.c_bg_selected if self.is_selected else self.c_bg)
             Rectangle(pos=self.pos, size=self.size)
             
             # --- 0. SEPARATOREN ---
@@ -268,6 +270,9 @@ class DAWChannelStrip(Widget):
             return
             
         geo = self._get_geometry()
+        
+        if hasattr(self, '_bg_color'):
+            self._bg_color.rgba = self.c_bg
         
         # 0. Update Name & Color
         if self._name_rect:
@@ -422,6 +427,7 @@ class DAWChannelStrip(Widget):
             touch.ud['touch_start_x'] = touch.x
             touch.ud['start_pan'] = self.pan
             self.is_pan_touched = True
+            self._send_select_osc()
             now = time.monotonic()
             if now - self._pan_last_tap_time < 0.35:
                 self.pan = 0.0
@@ -435,6 +441,7 @@ class DAWChannelStrip(Widget):
         # --- FADER AREA (zwischen Label und Pan-Control) ---
         touch.grab(self)
         self.is_touched = True
+        self._send_select_osc()
         touch.ud['active_control'] = 'pending'
         touch.ud['touch_start_x'] = touch.x
         touch.ud['touch_start_y'] = touch.y
@@ -615,16 +622,17 @@ class DAWChannelStrip(Widget):
             pass
 
     def _send_mute_osc(self):
-        """Sendet Mute-Toggle an den Broker."""
+        if self._ignore_osc_send: return
         app = App.get_running_app()
-        if not app or not getattr(app, 'osc_client', None) or self.channel_id == 0:
-            return
-        try:
-            app.osc_client.send_message(
-                f'/ui/{app.controller_id}/fader/{self.channel_id}/mute', 1.0
-            )
-        except Exception:
-            pass
+        if getattr(app, 'osc_client', None) and getattr(app, 'controller_id', None) and self.channel_id > 0:
+            val = 1.0 if self.is_muted else 0.0
+            app.osc_client.send_message(f"/ui/{app.controller_id}/fader/{self.channel_id}/mute", val)
+
+    def _send_select_osc(self):
+        if self._ignore_osc_send: return
+        app = App.get_running_app()
+        if getattr(app, 'osc_client', None) and getattr(app, 'controller_id', None) and self.channel_id > 0:
+            app.osc_client.send_message(f"/ui/{app.controller_id}/fader/{self.channel_id}/select", 1.0)
 
     def _send_solo_defeat_osc(self):
         """Sendet Global Solo Defeat an den Broker."""

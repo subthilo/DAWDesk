@@ -167,6 +167,21 @@ def create_dispatcher(state: BrokerState, daw_adapter: CubaseAdapter) -> Dispatc
             except ValueError:
                 pass
 
+    def handle_select(address: str, *args):
+        parts = address.strip('/').split('/')
+        if len(parts) == 5:
+            controller_id = parts[1]
+            try:
+                channel_id = int(parts[3])
+                value = args[0] if args else None
+                if value is not None:
+                    daw_index = state.get_daw_track_index(controller_id, channel_id)
+                    if daw_index >= 0:
+                        _log(f"  ↓ [{controller_id}] ch{channel_id}/select   {value}")
+                        daw_adapter.set_select(daw_index, value)
+            except ValueError:
+                pass
+
     def handle_solo_defeat(address: str, *args):
         parts = address.strip('/').split('/')
         if len(parts) >= 3:
@@ -197,6 +212,7 @@ def create_dispatcher(state: BrokerState, daw_adapter: CubaseAdapter) -> Dispatc
     dispatcher.map('/ui/*/fader/*/pan',    handle_pan)
     dispatcher.map('/ui/*/fader/*/solo',   handle_solo)
     dispatcher.map('/ui/*/fader/*/mute',   handle_mute)
+    dispatcher.map('/ui/*/fader/*/select', handle_select)
     dispatcher.map('/ui/*/global/solo_defeat', handle_solo_defeat)
     dispatcher.map('/ui/*/global/mute_defeat', handle_mute_defeat)
     dispatcher.map("/ui/*/nudge", handle_nudge)

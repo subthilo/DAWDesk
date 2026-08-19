@@ -167,6 +167,8 @@ async def run():
             client.send_message(f"/ui/fader/{channel_id}/mute", float_val)
         elif cmd == 0x07:
             client.send_message(f"/ui/fader/{channel_id}/meter", float_val)
+        elif cmd == 0x09:
+            client.send_message(f"/ui/fader/{channel_id}/select", float_val)
 
     def send_to_rpi_string(controller_id: str, channel_id: int, cmd: int, str_val: str):
         ctrl = registry.get_all().get(controller_id)
