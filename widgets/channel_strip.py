@@ -93,14 +93,15 @@ class DAWChannelStrip(Widget):
         
         pad = min(10, w * 0.1)
         lbl_h = 40
-        pan_h = 32  # Kompakter Pan-Bereich oben (spart Höhe für den Fader)
-        fader_h = h - lbl_h - pan_h
+        pan_ctrl_h = 32  # Kompakter Pan-Bereich oben
+        fader_h = h - lbl_h - pan_ctrl_h
         
         return {
             'pad': pad,
             'lbl_y': y, 'lbl_h': lbl_h,
             'fader_y': y + lbl_h, 'fader_h': fader_h,
-            'pan_y': y + lbl_h + fader_h, 'pan_h': pan_h,
+            'pan_ctrl_y': y + lbl_h + fader_h, 'pan_ctrl_h': pan_ctrl_h,
+            'nudge_boundary_y': y + lbl_h + fader_h * (2.0 / 3.0),
             'center_x': x + w / 2,
             'w': w, 'h': h, 'x': x, 'y': y
         }
@@ -159,7 +160,7 @@ class DAWChannelStrip(Widget):
             # Linie zwischen Name (unten) und Fader (Mitte)
             Line(points=[geo['x'] + margin, geo['fader_y'], geo['x'] + geo['w'] - margin, geo['fader_y']], width=1.0)
             # Linie zwischen Fader (Mitte) und Pan (oben)
-            Line(points=[geo['x'] + margin, geo['pan_y'], geo['x'] + geo['w'] - margin, geo['pan_y']], width=1.0)
+            Line(points=[geo['x'] + margin, geo['pan_ctrl_y'], geo['x'] + geo['w'] - margin, geo['pan_ctrl_y']], width=1.0)
             
             # --- 1. SPURNAME ---
             Color(*self.c_text)
@@ -168,7 +169,7 @@ class DAWChannelStrip(Widget):
             # --- 2. PAN HINTERGRUND (Dünne Schiene) ---
             if self.pan > -900:
                 half_w = geo['w'] * 0.38
-                cy_bar = geo['pan_y'] + 8
+                cy_bar = geo['pan_ctrl_y'] + 8
                 x_left = geo['center_x'] - half_w
                 x_right = geo['center_x'] + half_w
                 
@@ -299,7 +300,7 @@ class DAWChannelStrip(Widget):
             self._pan_value_rect.size = (0, 0)
         else:
             half_w = geo['w'] * 0.38
-            cy_bar = geo['pan_y'] + 8
+            cy_bar = geo['pan_ctrl_y'] + 8
             cx = geo['center_x']
             
             rounded_val = 0
@@ -325,7 +326,7 @@ class DAWChannelStrip(Widget):
             tex = self._get_cached_text(val_text, self.pan_font_size, bold=True)
             self._pan_value_rect.texture = tex
             self._pan_value_rect.size = tex.size
-            self._pan_value_rect.pos = (cx - tex.width/2, geo['pan_y'] + geo['pan_h'] - tex.height - 1)
+            self._pan_value_rect.pos = (cx - tex.width/2, geo['pan_ctrl_y'] + geo['pan_ctrl_h'] - tex.height - 1)
 
         # 2. Update Fader Kappe (C-Form)
         fy = self._db_to_y(self.value, geo)
@@ -414,14 +415,24 @@ class DAWChannelStrip(Widget):
             self._label_long_press_event = Clock.schedule_once(self._on_label_long_press, 0.5)
             return True
             
-        # --- CHANNEL AREA (Dynamic Direction Detection: Fader vs Pan on Central Strip) ---
-        fader_tol = min(25.0, geo['w'] * 0.40)
-        is_central_strip = abs(touch.x - geo['center_x']) <= fader_tol
+        # --- PAN CONTROL AREA (32px ganz oben) ---
+        if touch.y >= geo['pan_ctrl_y']:
+            touch.grab(self)
+            touch.ud['active_control'] = 'pan'
+            touch.ud['touch_start_x'] = touch.x
+            touch.ud['start_pan'] = self.pan
+            self.is_pan_touched = True
+            now = time.monotonic()
+            if now - self._pan_last_tap_time < 0.35:
+                self.pan = 0.0
+                self._send_pan_osc()
+                self._pan_last_tap_time = 0
+                touch.ungrab(self)
+                return True
+            self._pan_last_tap_time = now
+            return True
 
-        # Außerhalb des Mittelstreifens -> An MixerLayout übergeben (für Nudge im Fader-Bereich)
-        if not is_central_strip:
-            return super().on_touch_down(touch)
-
+        # --- FADER AREA (zwischen Label und Pan-Control) ---
         touch.grab(self)
         self.is_touched = True
         touch.ud['active_control'] = 'pending'
@@ -434,58 +445,45 @@ class DAWChannelStrip(Widget):
         touch.ud['offset_y'] = touch.y - fy
 
         now = time.monotonic()
-        is_pan_zone = touch.y >= geo['pan_y']
+        touch.ud['is_pan_zone'] = touch.y >= geo['nudge_boundary_y']
 
-        if is_pan_zone:
-            # Double-tap in Pan area -> Reset Pan to Center
-            if now - self._pan_last_tap_time < 0.35:
-                self.pan = 0.0
-                self._send_pan_osc()
-                self._pan_last_tap_time = 0
+        # Fader area taps
+        on_cap = abs(touch.y - fy) <= 25
+        if on_cap:
+            # Cap double-tap -> Reset to 0 dB
+            if now - self._last_tap_time < 0.35 and getattr(self, '_last_tap_was_cap', False):
+                self.value = 0.0
+                self._send_volume_osc()
+                self._last_tap_time = 0
                 touch.ungrab(self)
                 self.is_touched = False
                 return True
-            self._pan_last_tap_time = now
+            self._last_tap_time = now
+            self._last_tap_was_cap = True
         else:
-            # Fader area taps
-            on_cap = abs(touch.y - fy) <= 25
-            if on_cap:
-                # Cap double-tap -> Reset to 0 dB
-                if now - self._last_tap_time < 0.35 and getattr(self, '_last_tap_was_cap', False):
-                    self.value = 0.0
-                    self._send_volume_osc()
-                    self._last_tap_time = 0
-                    touch.ungrab(self)
-                    self.is_touched = False
-                    return True
-                self._last_tap_time = now
-                self._last_tap_was_cap = True
-            else:
-                # Non-cap double-tap -> Solo
-                if now - self._last_tap_time < 0.35 and not getattr(self, '_last_tap_was_cap', False):
-                    self._send_solo_osc()
-                    self._last_tap_time = 0
-                    touch.ungrab(self)
-                    self.is_touched = False
-                    return True
-                self._last_tap_time = now
-                self._last_tap_was_cap = False
+            # Non-cap double-tap -> Solo
+            if now - self._last_tap_time < 0.35 and not getattr(self, '_last_tap_was_cap', False):
+                self._send_solo_osc()
+                self._last_tap_time = 0
+                touch.ungrab(self)
+                self.is_touched = False
+                return True
+            self._last_tap_time = now
+            self._last_tap_was_cap = False
 
-            # Long-press detection (Mute) – schedule check
-            self._long_press_event = Clock.schedule_once(self._on_long_press, 0.5)
+        # Long-press detection (Mute) – schedule check
+        self._long_press_event = Clock.schedule_once(self._on_long_press, 0.5)
 
         return True
 
     def on_touch_move(self, touch):
         if touch.grab_current is self:
-            geo = self._get_geometry()
             ctrl = touch.ud.get('active_control')
-
+            geo = self._get_geometry()
             dx = touch.x - touch.ud.get('touch_start_x', touch.x)
             dy = touch.y - touch.ud.get('touch_start_y', touch.y)
             dist_sq = dx * dx + dy * dy
 
-            # Direction Detection: lock into 'fader' (vertical) or 'pan' (horizontal) after 7px
             if ctrl == 'pending':
                 if dist_sq > 49:  # > 7 pixels
                     self._touch_moved = True
@@ -497,9 +495,21 @@ class DAWChannelStrip(Widget):
                         ctrl = 'fader'
                         touch.ud['active_control'] = 'fader'
                     else:
-                        ctrl = 'pan'
-                        touch.ud['active_control'] = 'pan'
-                        self.is_pan_touched = True
+                        if touch.ud.get('is_pan_zone', False):
+                            ctrl = 'pan'
+                            touch.ud['active_control'] = 'pan'
+                            self.is_pan_touched = True
+                            touch.ud['start_pan'] = self.pan
+                            touch.ud['touch_start_x'] = touch.x
+                        else:
+                            ctrl = 'nudge'
+                            touch.ud['active_control'] = 'nudge'
+                            # WICHTIG: Sobald wir wissen, dass es ein Nudge ist,
+                            # heben wir die "is_touched" Sperre auf, damit eintreffende 
+                            # OSC-Werte (durch den Bank-Shift) den Fader/Pan sofort aktualisieren können!
+                            self.is_touched = False
+                            if self.parent and hasattr(self.parent, 'start_nudge'):
+                                self.parent.start_nudge(touch)
                 else:
                     return True
 
@@ -513,6 +523,9 @@ class DAWChannelStrip(Widget):
                 target_y = touch.y - touch.ud.get('offset_y', 0)
                 self.value = self._y_to_db(target_y, geo)
                 self._send_volume_osc()
+            elif ctrl == 'nudge':
+                if self.parent and hasattr(self.parent, 'process_nudge_move'):
+                    self.parent.process_nudge_move(touch)
             return True
         return super().on_touch_move(touch)
 
@@ -540,6 +553,9 @@ class DAWChannelStrip(Widget):
                 self._send_pan_osc()
                 Clock.schedule_once(lambda dt: self._send_pan_osc(), 0.05)
                 Clock.schedule_once(lambda dt: self._send_pan_osc(), 0.10)
+            elif ctrl == 'nudge':
+                if self.parent and hasattr(self.parent, 'end_nudge'):
+                    self.parent.end_nudge(touch)
             self.is_touched = False
             touch.ungrab(self)
             return True

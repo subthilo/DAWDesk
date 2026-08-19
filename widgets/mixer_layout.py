@@ -16,54 +16,27 @@ class MixerLayout(BoxLayout):
         self._highlight_color = None
         self._highlight_event = None
 
-    def on_touch_down(self, touch):
-        if not self.collide_point(*touch.pos):
-            return super().on_touch_down(touch)
+    def start_nudge(self, touch):
+        """Wird vom ChannelStrip aufgerufen, wenn eine Nudge-Geste (horizontal swipe) erkannt wurde."""
+        ch_idx = self._get_channel_index_at_x(touch.x)
+        touch.ud['last_ch_idx'] = ch_idx
+        self._highlight_channel(ch_idx)
 
-        # Nudging (Kanal-Blättern) startet NUR im vertikalen Fader-Bereich außerhalb des Mittelstreifens!
-        is_nudge_start = False
+    def process_nudge_move(self, touch):
+        """Wird vom ChannelStrip aufgerufen, während eines Nudge-Swipes."""
+        current_ch_idx = self._get_channel_index_at_x(touch.x)
+        last_ch_idx = touch.ud.get('last_ch_idx', current_ch_idx)
 
-        for child in self.children:
-            if hasattr(child, '_get_geometry') and child.collide_point(*touch.pos):
-                geo = child._get_geometry()
-                # Nur im vertikalen Fader-Bereich (nicht Pan-Zeile oben, nicht Name/Navi unten)
-                if geo['fader_y'] <= touch.y < geo['pan_y']:
-                    fader_tol = min(25.0, geo['w'] * 0.40)
-                    if abs(touch.x - geo['center_x']) > fader_tol:
-                        is_nudge_start = True
-                break
+        if current_ch_idx != last_ch_idx:
+            # Invertierte Richtung für natürliches Scrollen (Inhalt folgt dem Finger)
+            steps = last_ch_idx - current_ch_idx
+            self._trigger_nudge(steps)
+            touch.ud['last_ch_idx'] = current_ch_idx
+            self._highlight_channel(current_ch_idx)
 
-        if is_nudge_start:
-            touch.grab(self)
-            touch.ud['mode'] = 'swipe_nudge'
-            ch_idx = self._get_channel_index_at_x(touch.x)
-            touch.ud['last_ch_idx'] = ch_idx
-            touch.ud['start_x'] = touch.x
-            self._highlight_channel(ch_idx)
-            return True
-
-        return super().on_touch_down(touch)
-
-    def on_touch_move(self, touch):
-        if touch.grab_current is self and touch.ud.get('mode') == 'swipe_nudge':
-            current_ch_idx = self._get_channel_index_at_x(touch.x)
-            last_ch_idx = touch.ud.get('last_ch_idx', current_ch_idx)
-
-            if current_ch_idx != last_ch_idx:
-                # Invertierte Richtung für natürliches Scrollen (Inhalt folgt dem Finger)
-                steps = last_ch_idx - current_ch_idx
-                self._trigger_nudge(steps)
-                touch.ud['last_ch_idx'] = current_ch_idx
-                self._highlight_channel(current_ch_idx)
-            return True
-        return super().on_touch_move(touch)
-
-    def on_touch_up(self, touch):
-        if touch.grab_current is self:
-            touch.ungrab(self)
-            self._clear_highlight()
-            return True
-        return super().on_touch_up(touch)
+    def end_nudge(self, touch):
+        """Wird vom ChannelStrip aufgerufen, wenn der Nudge-Swipe endet."""
+        self._clear_highlight()
 
     def _get_channel_index_at_x(self, x):
         """Berechnet den 0-basierten Kanal-Index von links nach rechts."""
