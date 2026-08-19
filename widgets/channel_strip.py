@@ -416,8 +416,11 @@ class DAWChannelStrip(Widget):
             
         # --- CHANNEL AREA (Dynamic Direction Detection: Fader vs Pan on Central Strip) ---
         fader_tol = min(25.0, geo['w'] * 0.40)
-        if abs(touch.x - geo['center_x']) > fader_tol:
-            return super().on_touch_down(touch)  # Pass to MixerLayout for Nudging!
+        is_central_strip = abs(touch.x - geo['center_x']) <= fader_tol
+
+        # Außerhalb des Mittelstreifens -> An MixerLayout übergeben (für Nudge im Fader-Bereich)
+        if not is_central_strip:
+            return super().on_touch_down(touch)
 
         touch.grab(self)
         self.is_touched = True

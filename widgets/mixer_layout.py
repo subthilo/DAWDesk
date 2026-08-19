@@ -20,20 +20,20 @@ class MixerLayout(BoxLayout):
         if not self.collide_point(*touch.pos):
             return super().on_touch_down(touch)
 
-        # 1. Prüfen, ob die Berührung im zentralen Sensorstreifen eines Faders liegt
-        is_central_strip_touch = False
-        
+        # Nudging (Kanal-Blättern) startet NUR im vertikalen Fader-Bereich außerhalb des Mittelstreifens!
+        is_nudge_start = False
+
         for child in self.children:
             if hasattr(child, '_get_geometry') and child.collide_point(*touch.pos):
                 geo = child._get_geometry()
-                if touch.y >= geo['fader_y']:
-                    fader_tol = min(30.0, geo['w'] * 0.45)
-                    if abs(touch.x - geo['center_x']) <= fader_tol:
-                        is_central_strip_touch = True
+                # Nur im vertikalen Fader-Bereich (nicht Pan-Zeile oben, nicht Name/Navi unten)
+                if geo['fader_y'] <= touch.y < geo['pan_y']:
+                    fader_tol = min(25.0, geo['w'] * 0.40)
+                    if abs(touch.x - geo['center_x']) > fader_tol:
+                        is_nudge_start = True
                 break
 
-        # Berührungen außerhalb des zentralen Streifens (zwischen zwei Fadern oder am Bildschirmrand) aktivieren Nudging!
-        if not is_central_strip_touch:
+        if is_nudge_start:
             touch.grab(self)
             touch.ud['mode'] = 'swipe_nudge'
             ch_idx = self._get_channel_index_at_x(touch.x)
