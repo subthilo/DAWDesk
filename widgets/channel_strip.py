@@ -71,7 +71,6 @@ class DAWChannelStrip(Widget):
         
         # Gesture detection state (fader)
         self._last_tap_time = 0
-        self._long_press_event = None
         self._touch_moved = False
         # Gesture detection state (label – global defeat)
         self._label_last_tap_time = 0
@@ -427,6 +426,7 @@ class DAWChannelStrip(Widget):
             touch.ud['touch_start_x'] = touch.x
             touch.ud['start_pan'] = self.pan
             self.is_pan_touched = True
+            self.is_touched = True  # Verhindert OSC Echo Jitter
             self._send_select_osc()
             now = time.monotonic()
             if now - self._pan_last_tap_time < 0.35:
@@ -452,10 +452,11 @@ class DAWChannelStrip(Widget):
         touch.ud['offset_y'] = touch.y - fy
 
         now = time.monotonic()
-        touch.ud['is_pan_zone'] = touch.y >= geo['nudge_boundary_y']
-
+        
         # Fader area taps
         on_cap = abs(touch.y - fy) <= 25
+        touch.ud['on_cap'] = on_cap
+        
         if on_cap:
             # Cap double-tap -> Reset to 0 dB
             if now - self._last_tap_time < 0.35 and getattr(self, '_last_tap_was_cap', False):
@@ -478,9 +479,6 @@ class DAWChannelStrip(Widget):
             self._last_tap_time = now
             self._last_tap_was_cap = False
 
-        # Long-press detection (Mute) – schedule check
-        self._long_press_event = Clock.schedule_once(self._on_long_press, 0.5)
-
         return True
 
     def on_touch_move(self, touch):
@@ -494,15 +492,18 @@ class DAWChannelStrip(Widget):
             if ctrl == 'pending':
                 if dist_sq > 49:  # > 7 pixels
                     self._touch_moved = True
-                    if self._long_press_event:
-                        self._long_press_event.cancel()
-                        self._long_press_event = None
 
                     if abs(dy) > abs(dx):
-                        ctrl = 'fader'
-                        touch.ud['active_control'] = 'fader'
+                        if not touch.ud.get('on_cap', False):
+                            ctrl = 'fine_fader'
+                            touch.ud['active_control'] = 'fine_fader'
+                            touch.ud['start_db'] = self.value
+                            touch.ud['touch_start_y'] = touch.y
+                        else:
+                            ctrl = 'fader'
+                            touch.ud['active_control'] = 'fader'
                     else:
-                        if touch.ud.get('is_pan_zone', False):
+                        if touch.ud.get('on_cap', False):
                             ctrl = 'pan'
                             touch.ud['active_control'] = 'pan'
                             self.is_pan_touched = True
@@ -521,13 +522,23 @@ class DAWChannelStrip(Widget):
                     return True
 
             if ctrl == 'pan':
-                drag_range = geo['w'] * 0.8
+                # Finer pan control: require 300 pixels drag for a full sweep (-1 to 1 is a range of 2)
+                # So dx of 300 gives delta of 2.0.
+                drag_range = 300.0
                 delta_val = (dx / drag_range) * 2.0
                 new_val = touch.ud.get('start_pan', 0.0) + delta_val
                 self.pan = max(-1.0, min(1.0, new_val))
                 self._send_pan_osc()
             elif ctrl == 'fader':
                 target_y = touch.y - touch.ud.get('offset_y', 0)
+                self.value = self._y_to_db(target_y, geo)
+                self._send_volume_osc()
+            elif ctrl == 'fine_fader':
+                dy = touch.y - touch.ud.get('touch_start_y', touch.y)
+                scaled_dy = dy * 0.15  # Reduced from 0.35 to 0.15 for even finer control
+                start_db = touch.ud.get('start_db', self.value)
+                start_fy = self._db_to_y(start_db, geo)
+                target_y = start_fy + scaled_dy
                 self.value = self._y_to_db(target_y, geo)
                 self._send_volume_osc()
             elif ctrl == 'nudge':
@@ -544,9 +555,6 @@ class DAWChannelStrip(Widget):
                 self.is_pan_touched = False
                 
             # Cancel any pending long-press
-            if self._long_press_event:
-                self._long_press_event.cancel()
-                self._long_press_event = None
             if self._label_long_press_event:
                 self._label_long_press_event.cancel()
                 self._label_long_press_event = None
@@ -568,10 +576,7 @@ class DAWChannelStrip(Widget):
             return True
         return super().on_touch_up(touch)
 
-    def _on_long_press(self, dt):
-        """Called when user holds finger on fader for 500ms without moving."""
-        if not self._touch_moved:
-            self._send_mute_osc()
+
 
     def _on_label_long_press(self, dt):
         """Called when user holds finger on label for 500ms → Global Mute Defeat."""

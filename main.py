@@ -301,7 +301,9 @@ class DAWDeskApp(App):
                         pan_val = -999.0
                     else:
                         pan_val = (value * 2.0) - 1.0
-                    if abs(strip.pan - pan_val) >= 0.01:
+                    # 7-bit MIDI has 128 steps, so step size is 2/127 = 0.0157.
+                    # We must use a threshold > 0.0157 to prevent the UI from snapping to the echoed MIDI value.
+                    if abs(strip.pan - pan_val) >= 0.02:
                         strip._ignore_osc_send = True
                         strip.pan = pan_val
                         strip._ignore_osc_send = False
