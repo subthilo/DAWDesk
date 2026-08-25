@@ -74,7 +74,7 @@ class DAWChannelStrip(Widget):
         self._touch_moved = False
         # Gesture detection state (label – global defeat)
         self._label_last_tap_time = 0
-        self._label_long_press_event = None
+        self._label_single_tap_event = None
         # Gesture detection state (pan)
         self._pan_last_tap_time = 0
         
@@ -99,10 +99,9 @@ class DAWChannelStrip(Widget):
         
         return {
             'pad': pad,
-            'lbl_y': y, 'lbl_h': lbl_h,
-            'fader_y': y + lbl_h, 'fader_h': fader_h,
-            'pan_ctrl_y': y + lbl_h + fader_h, 'pan_ctrl_h': pan_ctrl_h,
-            'nudge_boundary_y': y + lbl_h + fader_h * (2.0 / 3.0),
+            'fader_y': y, 'fader_h': fader_h,
+            'pan_ctrl_y': y + fader_h, 'pan_ctrl_h': pan_ctrl_h,
+            'lbl_y': y + fader_h + pan_ctrl_h, 'lbl_h': lbl_h,
             'center_x': x + w / 2,
             'w': w, 'h': h, 'x': x, 'y': y
         }
@@ -158,10 +157,10 @@ class DAWChannelStrip(Widget):
             # --- 0. SEPARATOREN ---
             Color(0.2, 0.2, 0.2, 1)  # Dezentes Grau für Trennlinien
             margin = 15  # Linien gehen nicht über die volle Breite
-            # Linie zwischen Name (unten) und Fader (Mitte)
-            Line(points=[geo['x'] + margin, geo['fader_y'], geo['x'] + geo['w'] - margin, geo['fader_y']], width=1.0)
-            # Linie zwischen Fader (Mitte) und Pan (oben)
+            # Linie zwischen Fader (unten) und Pan (Mitte)
             Line(points=[geo['x'] + margin, geo['pan_ctrl_y'], geo['x'] + geo['w'] - margin, geo['pan_ctrl_y']], width=1.0)
+            # Linie zwischen Pan (Mitte) und Name (oben)
+            Line(points=[geo['x'] + margin, geo['lbl_y'], geo['x'] + geo['w'] - margin, geo['lbl_y']], width=1.0)
             
             # --- 1. SPURNAME ---
             Color(*self.c_text)
@@ -401,10 +400,14 @@ class DAWChannelStrip(Widget):
             
         geo = self._get_geometry()
         
-        # --- LABEL AREA (global defeat gestures) ---
-        if touch.y < geo['fader_y']:
+        # --- LABEL AREA (ganz oben, global defeat gestures) ---
+        if touch.y >= geo['lbl_y']:
             touch.grab(self)
             touch.ud['active_control'] = 'label'
+            
+            if self._label_single_tap_event:
+                self._label_single_tap_event.cancel()
+                self._label_single_tap_event = None
             
             # Double-tap detection (Global Solo Defeat)
             now = time.monotonic()
@@ -414,13 +417,10 @@ class DAWChannelStrip(Widget):
                 touch.ungrab(self)
                 return True
             self._label_last_tap_time = now
-            
-            # Long-press detection (Global Mute Defeat)
-            self._label_long_press_event = Clock.schedule_once(self._on_label_long_press, 0.5)
             return True
             
-        # --- PAN CONTROL AREA (32px ganz oben) ---
-        if touch.y >= geo['pan_ctrl_y']:
+        # --- PAN CONTROL AREA (32px unter dem Label) ---
+        if touch.y >= geo['pan_ctrl_y'] and touch.y < geo['lbl_y']:
             touch.grab(self)
             touch.ud['active_control'] = 'pan'
             touch.ud['touch_start_x'] = touch.x
@@ -458,14 +458,6 @@ class DAWChannelStrip(Widget):
         touch.ud['on_cap'] = on_cap
         
         if on_cap:
-            # Cap double-tap -> Reset to 0 dB
-            if now - self._last_tap_time < 0.35 and getattr(self, '_last_tap_was_cap', False):
-                self.value = 0.0
-                self._send_volume_osc()
-                self._last_tap_time = 0
-                touch.ungrab(self)
-                self.is_touched = False
-                return True
             self._last_tap_time = now
             self._last_tap_was_cap = True
         else:
@@ -555,9 +547,6 @@ class DAWChannelStrip(Widget):
                 self.is_pan_touched = False
                 
             # Cancel any pending long-press
-            if self._label_long_press_event:
-                self._label_long_press_event.cancel()
-                self._label_long_press_event = None
             # Re-send final value to ensure sync with Cubase.
             # We send it redundantly (immediately, +50ms, +100ms) to combat UDP packet loss on Wi-Fi.
             if ctrl == 'fader' and self._touch_moved:
@@ -571,15 +560,28 @@ class DAWChannelStrip(Widget):
             elif ctrl == 'nudge':
                 if self.parent and hasattr(self.parent, 'end_nudge'):
                     self.parent.end_nudge(touch)
+                    
+            if ctrl == 'label' and not self._touch_moved:
+                self._label_single_tap_event = Clock.schedule_once(self._on_label_single_tap, 0.35)
+                    
+            if not self._touch_moved and touch.ud.get('on_cap', False):
+                # Sofort auslösen (kein schedule_once), um Snappy zu sein!
+                self._on_cap_single_tap(0)
+                
             self.is_touched = False
             touch.ungrab(self)
             return True
         return super().on_touch_up(touch)
+        
+    def _on_cap_single_tap(self, dt):
+        """Called if fader cap is tapped exactly once."""
+        self._send_mute_osc()
 
 
 
-    def _on_label_long_press(self, dt):
-        """Called when user holds finger on label for 500ms → Global Mute Defeat."""
+    def _on_label_single_tap(self, dt):
+        """Called when user taps label once → Global Mute Defeat."""
+        self._label_single_tap_event = None
         self._send_mute_defeat_osc()
 
     # --- OSC Sending ---
@@ -630,8 +632,7 @@ class DAWChannelStrip(Widget):
         if self._ignore_osc_send: return
         app = App.get_running_app()
         if getattr(app, 'osc_client', None) and getattr(app, 'controller_id', None) and self.channel_id > 0:
-            val = 1.0 if self.is_muted else 0.0
-            app.osc_client.send_message(f"/ui/{app.controller_id}/fader/{self.channel_id}/mute", val)
+            app.osc_client.send_message(f"/ui/{app.controller_id}/fader/{self.channel_id}/mute", 1.0)
 
     def _send_select_osc(self):
         if self._ignore_osc_send: return
